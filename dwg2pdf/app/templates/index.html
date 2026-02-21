@@ -220,8 +220,11 @@
                         const childBox = child.geometry.boundingBox.clone();
                         // Prevent empty/infinity boxes from corrupting the master box union
                         if (!childBox.isEmpty() && isFinite(childBox.min.x) && isFinite(childBox.max.x)) {
-                            childBox.applyMatrix4(child.matrixWorld);
-                            box.union(childBox);
+                            // Only include if it has a non-zero area (lines have volume, but rogue empty points don't)
+                            if (Math.abs(childBox.max.x - childBox.min.x) > 0.0001 || Math.abs(childBox.max.y - childBox.min.y) > 0.0001) {
+                                childBox.applyMatrix4(child.matrixWorld);
+                                box.union(childBox);
+                            }
                         }
                     }
                 }
@@ -233,6 +236,9 @@
             const height = box.max.y - box.min.y;
             const centerX = box.min.x + width / 2;
             const centerY = box.min.y + height / 2;
+
+            console.log(`[AutoFit] Calculated Master Box: min(${box.min.x.toFixed(2)}, ${box.min.y.toFixed(2)}) max(${box.max.x.toFixed(2)}, ${box.max.y.toFixed(2)})`);
+            console.log(`[AutoFit] Width: ${width.toFixed(2)}, Height: ${height.toFixed(2)}, Center: (${centerX.toFixed(2)}, ${centerY.toFixed(2)})`);
 
             const container = document.getElementById('viewer-container');
             let containerAspect = container.clientWidth / container.clientHeight;
@@ -250,6 +256,7 @@
             // Add padding (1.05x) so it's not flush to the edges
             newWidth *= 1.05;
             newHeight *= 1.05;
+            console.log(`[AutoFit] Camera aspect matched dimensions: Width: ${newWidth.toFixed(2)}, Height: ${newHeight.toFixed(2)}`);
 
             // Make sure width/height are not zero and are valid numbers
             if (!isFinite(newWidth) || !isFinite(newHeight) || newWidth < 0.001 || newHeight < 0.001) {
