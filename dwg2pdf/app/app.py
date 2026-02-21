@@ -10,6 +10,7 @@ import ezdxf
 from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 import matplotlib.pyplot as plt
+from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
 
 app = Flask(__name__)
 
@@ -111,10 +112,18 @@ def generate_pdf():
         # Matplotlib für PDF-Export konfigurieren
         fig = plt.figure(figsize=(11.69, 8.27), dpi=300) # A4 Querformat
         ax = fig.add_axes([0, 0, 1, 1])
+        ax.set_facecolor('white')
         
         ctx = RenderContext(doc)
         out = MatplotlibBackend(ax)
-        Frontend(ctx, out).draw_layout(msp, finalize=True)
+        
+        # Konfiguration für weißen Hintergrund und dunkle Linien (kein Dark-Mode invertieren)
+        config = Configuration(
+            background_policy=BackgroundPolicy.WHITE,
+            color_policy=ColorPolicy.BLACK
+        )
+        
+        Frontend(ctx, out, config=config).draw_layout(msp, finalize=True)
         
         # PDF in Speicher (BytesIO) schreiben statt auf die Festplatte
         pdf_bytes = io.BytesIO()

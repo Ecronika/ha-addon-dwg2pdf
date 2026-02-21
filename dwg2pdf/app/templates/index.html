@@ -190,10 +190,21 @@
                 checkbox.checked = true; // Standardmäßig sind alle Layer an
                 checkbox.id = 'layer-' + layerName;
 
-                // Optional: Wenn der Viewer das Ein-/Ausblenden in Echtzeit unterstützt
-                // checkbox.addEventListener('change', (e) => {
-                //     viewer.SetLayerVisibility(layerName, e.target.checked);
-                // });
+                // Live-Vorschau: Blendet Three.js Objekte anhand des Layer-Namens ein/aus
+                checkbox.addEventListener('change', (e) => {
+                    const scene = viewer.scene;
+                    const isVisible = e.target.checked;
+
+                    if (scene && scene.children) {
+                        scene.children.forEach(child => {
+                            if (child.userData && child.userData.layer === layerName) {
+                                child.visible = isVisible;
+                            }
+                        });
+                        // Neu zeichnen
+                        if (viewer.render) viewer.render();
+                    }
+                });
 
                 const label = document.createElement('label');
                 label.htmlFor = 'layer-' + layerName;
