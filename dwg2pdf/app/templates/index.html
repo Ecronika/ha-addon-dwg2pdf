@@ -145,22 +145,27 @@
                 const dxf = parser.parseSync(dxfText);
                 console.log("DXF geparst:", dxf);
 
-                // 3. Container vorbereiten und Plan rendern
-                container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>3/3: Zeichne Plan in den Viewer...</p>";
-
+                // 3. Font laden und Plan rendern
+                container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>3/3: Lade Schriften und zeichne Plan...</p>";
                 await new Promise(resolve => setTimeout(resolve, 50));
 
-                container.innerHTML = ""; // Lade-Text entfernen
+                // Wir speichern das Original-DXF für die Checkboxen zwischen
+                window.originalDxfEntities = [...dxf.entities];
+                window.currentDxfObject = dxf;
 
-                console.log("Initialisiere ThreeDxf Viewer...");
-                // three-dxf Viewer initialisieren (Breite und Höhe des Containers)
-                viewer = new window.ThreeDxf.Viewer(dxf, container, container.clientWidth, container.clientHeight);
+                const loader = new THREE.FontLoader();
+                loader.load('static/fonts/helvetiker_regular.typeface.json', function (font) {
+                    window.currentFont = font;
+                    container.innerHTML = ""; // Text weg
 
-                // 4. Layer-Liste (Ebenen) auslesen und Checkboxen bauen
-                buildLayerSidebar(dxf.tables.layer.layers);
+                    console.log("Initialisiere ThreeDxf Viewer...");
+                    viewer = new window.ThreeDxf.Viewer(dxf, container, container.clientWidth, container.clientHeight, font);
 
-                document.getElementById('btn-pdf').style.display = 'block';
-                console.log("Fertig gerendert!");
+                    // 4. Layer-Liste bauen
+                    buildLayerSidebar(dxf.tables.layer.layers);
+                    document.getElementById('btn-pdf').style.display = 'block';
+                    console.log("Fertig gerendert!");
+                });
 
             } catch (error) {
                 console.error("Fehler beim Rendern:", error);
@@ -190,21 +195,26 @@
                 checkbox.checked = true; // Standardmäßig sind alle Layer an
                 checkbox.id = 'layer-' + layerName;
 
-                // Live-Vorschau: Blendet Three.js Objekte anhand des Layer-Namens ein/aus
-                checkbox.addEventListener('change', (e) => {
-                    const scene = viewer.scene;
-                    const isVisible = e.target.checked;
+                // Live-Vorschau: Rendert die Szene neu, gefiltert nach Layern
+                checkbox.addEventListener('change', () => {
+                    const activeLayers = Array.from(document.querySelectorAll('.layer-checkbox:checked')).map(cb => cb.value);
 
-                    if (scene) {
-                        // Traverse geht rekursiv durch alle Untergruppen und Blöcke im 3D-Modell
-                        scene.traverse(child => {
-                            if (child.userData && child.userData.layer === layerName) {
-                                child.visible = isVisible;
-                            }
-                        });
-                        // Neu zeichnen
-                        if (viewer.render) viewer.render();
-                    }
+                    // Filtere das DXF-Objekt temporär
+                    window.currentDxfObject.entities = window.originalDxfEntities.filter(entity => {
+                        return activeLayers.includes(entity.layer);
+                    });
+
+                    // Container leeren und Viewer komplett neu aufbauen (da three-dxf keine Live-Filter bietet)
+                    const container = document.getElementById('viewer-container');
+                    container.innerHTML = "";
+
+                    viewer = new window.ThreeDxf.Viewer(
+                        window.currentDxfObject,
+                        container,
+                        container.clientWidth,
+                        container.clientHeight,
+                        window.currentFont
+                    );
                 });
 
                 const label = document.createElement('label');
