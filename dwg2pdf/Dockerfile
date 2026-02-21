@@ -1,6 +1,6 @@
-# Wir nutzen ein schlankes Debian-basiertes Python-Image
-ARG BUILD_FROM=python:3.11-slim
-FROM $BUILD_FROM
+# Wir erzwingen ein Debian-basiertes Image, da HomeAssistant sonst sein eigenes Alpine-Image nimmt
+# und "apt-get" sowie "dpkg" (für die .deb Datei) dann fehlschlagen würden!
+FROM python:3.11-slim
 
 # System-Abhängigkeiten installieren (oft nötig für CAD/PDF-Rendering)
 RUN apt-get update && apt-get install -y \
