@@ -324,7 +324,7 @@ export function Viewer(data, parent, width, height, font) {
 
         textEnt.font = font;
         textEnt.fontSize = style.textHeight;
-        textEnt.maxWidth = entity.width;
+        textEnt.maxWidth = entity.width || Infinity;
         textEnt.position.x = entity.position.x;
         textEnt.position.y = entity.position.y;
         textEnt.position.z = entity.position.z;
