@@ -1,3 +1,25 @@
+# Home Assistant / Docker spezifisch
+.DS_Store
+Thumbs.db
+
+# ⚠️ GANZ WICHTIG: ODA File Converter (Lizenzschutz!)
+*.deb
+*.rpm
+ODAFileConverter*.tar.gz
+
+# Temporäre Uploads und konvertierte Pläne
+# (Damit keine echten Firmenpläne auf GitHub landen)
+app/uploads/*
+app/converted/*
+app/temp/*
+*.dwg
+*.dxf
+*.pdf
+
+# Erlaube aber leere Verzeichnisse für die Ordnerstruktur durch .gitkeep
+!app/uploads/.gitkeep
+!app/converted/.gitkeep
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
