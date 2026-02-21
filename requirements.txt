@@ -1,0 +1,4 @@
+Flask>=3.0.0
+gunicorn>=21.2.0
+ezdxf>=1.1.0
+matplotlib>=3.8.0
