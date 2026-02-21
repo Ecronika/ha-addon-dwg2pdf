@@ -5,4 +5,4 @@ echo "Starte DWG to PDF Converter Add-on..."
 cd /usr/src/addon/app
 
 # Starte Gunicorn (bindet an Port 5000, 1 Worker für weniger RAM-Verbrauch, 5 Min Timeout für große PDFs)
-exec gunicorn -w 1 --timeout 300 -b 0.0.0.0:5000 app:app
+exec gunicorn -w 1 --threads 4 --timeout 300 -b 0.0.0.0:5000 app:app

@@ -232,38 +232,43 @@
             const checkboxes = document.querySelectorAll('.layer-checkbox:checked');
             const activeLayers = Array.from(checkboxes).map(cb => cb.value);
 
-            const response = await fetch('generate_pdf', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dxf_file: currentDxfFile, original_name: currentOriginalName, layers: activeLayers })
-            });
+            try {
+                const response = await fetch('generate_pdf', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dxf_file: currentDxfFile, original_name: currentOriginalName, layers: activeLayers })
+                });
 
-            if (response.ok) {
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
 
-                // Hole Dateiname aus Response Header, falls vorhanden
-                const contentDisposition = response.headers.get('Content-Disposition');
-                let downloadName = currentOriginalName.replace('.dxf', '.pdf'); // Fallback
-                if (contentDisposition && contentDisposition.includes('filename=')) {
-                    const match = contentDisposition.match(/filename="?([^"]+)"?/);
-                    if (match) downloadName = match[1];
+                    // Hole Dateiname aus Response Header, falls vorhanden
+                    const contentDisposition = response.headers.get('Content-Disposition');
+                    let downloadName = currentOriginalName.replace('.dxf', '.pdf'); // Fallback
+                    if (contentDisposition && contentDisposition.includes('filename=')) {
+                        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                        if (match) downloadName = match[1];
+                    }
+
+                    a.download = downloadName;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                } else {
+                    let errorMsg = response.statusText;
+                    try { const errData = await response.json(); errorMsg = errData.error || errorMsg; } catch (e) { }
+                    alert("Fehler bei der PDF-Erstellung: " + errorMsg);
                 }
-
-                a.download = downloadName;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-            } else {
-                const errData = await response.json();
-                alert("Fehler bei der PDF-Erstellung: " + (errData.error || response.statusText));
+            } catch (e) {
+                alert("Netzwerkfehler oder Server nicht erreichbar.");
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
             }
-
-            btn.innerText = originalText;
-            btn.disabled = false;
         }
     </script>
 </body>

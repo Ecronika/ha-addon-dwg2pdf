@@ -1,6 +1,5 @@
 import os
 import uuid
-import uuid
 import shutil
 import time
 import threading
@@ -8,16 +7,14 @@ import io
 from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
 import ezdxf
 from ezdxf.addons.drawing import RenderContext, Frontend
-from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_pdf import FigureCanvasPdf
 from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
 
 app = Flask(__name__)
 
 # Temporäre Ordner für die Verarbeitung
-UPLOAD_FOLDER = '/tmp/uploads'
 CONVERT_FOLDER = '/tmp/converted'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(CONVERT_FOLDER, exist_ok=True)
 
 # Background cleanup thread
@@ -25,7 +22,7 @@ def cleanup_old_files():
     while True:
         time.sleep(3600) # Check every hour
         now = time.time()
-        for folder in [UPLOAD_FOLDER, CONVERT_FOLDER]:
+        for folder in [CONVERT_FOLDER]:
             try:
                 for filename in os.listdir(folder):
                     file_path = os.path.join(folder, filename)
@@ -77,13 +74,14 @@ def serve_dxf(filename):
     
 @app.route('/generate_pdf', methods=['POST'])
 def generate_pdf():
-    data = request.json
+    data = request.get_json(silent=True) or {}
     dxf_filename = data.get('dxf_file')
     original_name = data.get('original_name', 'export')
     active_layers = data.get('layers', []) # Array der gewählten Layer
     
-    if not dxf_filename:
-        return jsonify({'error': 'Keine DXF-Datei angegeben'}), 400
+    # Security: Path Traversal verhindern
+    if not dxf_filename or not dxf_filename.endswith('.dxf') or '/' in dxf_filename or '\\' in dxf_filename:
+        return jsonify({'error': 'Ungültiger Dateiname oder Format'}), 400
         
     dxf_path = os.path.join(CONVERT_FOLDER, dxf_filename)
     if not os.path.exists(dxf_path):
@@ -109,8 +107,8 @@ def generate_pdf():
             if layer.dxf.name not in active_layers:
                 layer.off()
 
-        # Matplotlib für PDF-Export konfigurieren
-        fig = plt.figure(figsize=(11.69, 8.27), dpi=300) # A4 Querformat
+        # Matplotlib (Objektorientiert, Thread-Safe!)
+        fig = Figure(figsize=(11.69, 8.27), dpi=300) 
         ax = fig.add_axes([0, 0, 1, 1])
         ax.set_facecolor('white')
         
@@ -127,8 +125,8 @@ def generate_pdf():
         
         # PDF in Speicher (BytesIO) schreiben statt auf die Festplatte
         pdf_bytes = io.BytesIO()
-        fig.savefig(pdf_bytes, format='pdf')
-        plt.close(fig)
+        canvas = FigureCanvasPdf(fig)
+        canvas.print_pdf(pdf_bytes)
         
         pdf_bytes.seek(0)
         
