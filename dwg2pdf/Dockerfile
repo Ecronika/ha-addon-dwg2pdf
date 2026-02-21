@@ -20,9 +20,11 @@ WORKDIR /build
 RUN git clone https://git.savannah.gnu.org/git/libredwg.git .
 
 # 3. Das Kommandozeilen-Tool (dwg2dxf) und die Bibliothek aus dem C-Quellcode kompilieren
+# WICHTIG: Kein 'make -j$(nproc)' verwenden! Auf einem Raspberry Pi führt das parallele
+# Kompilieren zum sofortigen RAM-Kollaps und Systemabsturz. Ein Core ist langsamer, aber sicher.
 RUN sh ./autogen.sh && \
-    ./configure --disable-bindings --enable-trace && \
-    make -j$(nproc) && \
+    ./configure --disable-bindings && \
+    make && \
     make install
 
 # ==========================================================
