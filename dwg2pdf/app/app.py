@@ -117,10 +117,10 @@ def generate_pdf():
         ctx = RenderContext(doc)
         out = MatplotlibBackend(ax)
         
-        # Konfiguration für weißen Hintergrund und dunkle Linien (kein Dark-Mode invertieren)
+        # Konfiguration für weißen Hintergrund, aber Beibehaltung der Originalfarben
         config = Configuration(
             background_policy=BackgroundPolicy.WHITE,
-            color_policy=ColorPolicy.BLACK
+            color_policy=ColorPolicy.COLOR
         )
         
         Frontend(ctx, out, config=config).draw_layout(msp, finalize=True)

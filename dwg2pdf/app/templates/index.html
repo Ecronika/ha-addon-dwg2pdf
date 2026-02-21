@@ -195,8 +195,9 @@
                     const scene = viewer.scene;
                     const isVisible = e.target.checked;
 
-                    if (scene && scene.children) {
-                        scene.children.forEach(child => {
+                    if (scene) {
+                        // Traverse geht rekursiv durch alle Untergruppen und Blöcke im 3D-Modell
+                        scene.traverse(child => {
                             if (child.userData && child.userData.layer === layerName) {
                                 child.visible = isVisible;
                             }
