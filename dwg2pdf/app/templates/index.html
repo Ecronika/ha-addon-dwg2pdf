@@ -109,7 +109,8 @@
         }
 
         async function loadAndRenderDXF(filename) {
-            document.getElementById('viewer-container').innerHTML = "<p style='text-align:center; margin-top: 250px;'>Lade Plan in den Viewer...</p>";
+            const container = document.getElementById('viewer-container');
+            container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>1/3: Lade DXF-Datei vom Server herunter...</p>";
 
             try {
                 // 1. DXF-Datei vom Python-Server holen
@@ -117,11 +118,19 @@
                 const dxfText = await response.text();
 
                 // 2. DXF parsen
+                container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>2/3: Analysiere DXF-Struktur (Browser rechnet, bitte warten)...</p>";
+
+                // Wir geben dem Browser einen winzigen Moment zum Zeichnen des obigen Textes, da der parseSync den Thread blockiert
+                await new Promise(resolve => setTimeout(resolve, 50));
+
                 const parser = new window.DxfParser();
                 const dxf = parser.parseSync(dxfText);
 
                 // 3. Container vorbereiten und Plan rendern
-                const container = document.getElementById('viewer-container');
+                container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>3/3: Zeichne Plan in den Viewer...</p>";
+
+                await new Promise(resolve => setTimeout(resolve, 50));
+
                 container.innerHTML = ""; // Lade-Text entfernen
 
                 // three-dxf Viewer initialisieren (Breite und Höhe des Containers)
@@ -134,7 +143,7 @@
 
             } catch (error) {
                 console.error("Fehler beim Rendern:", error);
-                document.getElementById('viewer-container').innerHTML = "<p>Fehler bei der Anzeige der Vorschau.</p>";
+                container.innerHTML = "<p style='text-align:center; margin-top: 250px; color:red;'>Fehler bei der Anzeige der Vorschau. Die DXF ist evtl. zu groß oder fehlerhaft.</p>";
             }
         }
 
