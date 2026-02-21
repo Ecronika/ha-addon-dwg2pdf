@@ -6,6 +6,7 @@ FROM python:3.11-alpine AS builder
 # 1. Alle nötigen C-Compiler und Build-Tools für Alpine Linux installieren
 RUN apk add --no-cache \
     build-base \
+    autoconf \
     automake \
     libtool \
     python3-dev \
@@ -40,7 +41,7 @@ COPY --from=builder /usr/local/bin/dwg* /usr/local/bin/
 COPY --from=builder /usr/local/lib/libredwg* /usr/local/lib/
 
 # 3. System mitteilen, wo die neuen .so Laufzeitbibliotheken liegen
-ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/local/lib
 
 # 4. Arbeitsverzeichnis für unseren Python-Code
 WORKDIR /usr/src/addon
