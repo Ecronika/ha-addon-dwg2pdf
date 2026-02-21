@@ -214,8 +214,11 @@
                             child.geometry.computeBoundingBox();
                         }
                         const childBox = child.geometry.boundingBox.clone();
-                        childBox.applyMatrix4(child.matrixWorld);
-                        box.union(childBox);
+                        // Prevent empty/infinity boxes from corrupting the master box union
+                        if (!childBox.isEmpty() && isFinite(childBox.min.x) && isFinite(childBox.max.x)) {
+                            childBox.applyMatrix4(child.matrixWorld);
+                            box.union(childBox);
+                        }
                     }
                 }
             });
@@ -244,8 +247,8 @@
             newWidth *= 1.05;
             newHeight *= 1.05;
 
-            // Make sure width/height are not zero
-            if (newWidth < 0.001 || newHeight < 0.001) {
+            // Make sure width/height are not zero and are valid numbers
+            if (!isFinite(newWidth) || !isFinite(newHeight) || newWidth < 0.001 || newHeight < 0.001) {
                 newWidth = 10;
                 newHeight = 10 / containerAspect;
             }
@@ -254,12 +257,22 @@
             viewer.camera.right = newWidth / 2;
             viewer.camera.top = newHeight / 2;
             viewer.camera.bottom = -newHeight / 2;
+
+            // To prevent orthographic camera from zooming strangely,
+            // we must ensure the zoom is exactly 1 before updating the projection.
+            viewer.camera.zoom = 1;
+
             viewer.camera.position.x = centerX;
             viewer.camera.position.y = centerY;
             viewer.camera.updateProjectionMatrix();
 
+            // Also reset controls internal zoom state if needed (which orbits do)
+            if (viewer.controls.reset) viewer.controls.reset();
+
             viewer.controls.target.set(centerX, centerY, 0);
+            viewer.camera.position.set(centerX, centerY, 10);
             viewer.controls.update();
+
             if (viewer.render) viewer.render();
         }
 
@@ -291,8 +304,8 @@
                                 child.visible = isVisible;
                             }
                         });
-                        // Neu zeichnen und Ansicht anpassen
-                        fitCameraToSelection(viewer);
+                        // Neu zeichnen ohne die Ansicht zurückzusetzen
+                        if (viewer.render) viewer.render();
                     }
                 });
 
