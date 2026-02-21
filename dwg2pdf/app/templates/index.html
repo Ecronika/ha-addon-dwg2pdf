@@ -204,6 +204,16 @@
                         return activeLayers.includes(entity.layer);
                     });
 
+                    // Kamera-Einstellungen sichern, damit wir beim Neuzeichnen nicht wegspringen
+                    let oldCamPos, oldCamZoom, oldTarget;
+                    if (viewer && viewer.camera) {
+                        oldCamPos = viewer.camera.position.clone();
+                        oldCamZoom = viewer.camera.zoom;
+                        if (viewer.controls && viewer.controls.target) {
+                            oldTarget = viewer.controls.target.clone();
+                        }
+                    }
+
                     // Container leeren und Viewer komplett neu aufbauen (da three-dxf keine Live-Filter bietet)
                     const container = document.getElementById('viewer-container');
                     container.innerHTML = "";
@@ -215,6 +225,17 @@
                         container.clientHeight,
                         window.currentFont
                     );
+
+                    // Kamera wiederherstellen
+                    if (oldCamPos && viewer.camera) {
+                        viewer.camera.position.copy(oldCamPos);
+                        viewer.camera.zoom = oldCamZoom;
+                        viewer.camera.updateProjectionMatrix();
+                        if (oldTarget && viewer.controls) {
+                            viewer.controls.target.copy(oldTarget);
+                            viewer.controls.update();
+                        }
+                    }
                 });
 
                 const label = document.createElement('label');
