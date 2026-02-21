@@ -12,7 +12,6 @@ import uuid
 # pylint: disable=import-error
 from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
 import ezdxf
-from ezdxf import bbox
 from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
@@ -90,39 +89,42 @@ def serve_dxf(filename):
     return send_from_directory(CONVERT_FOLDER, filename)
 
 
-def _calculate_figure_size(msp, unit_multiplier: float, scale_denominator: float) -> tuple:
-    """Calculates the Matplotlib Figure dimensions in inches to achieve true scale."""
-    extents = bbox.extents(msp, fast=True)
-    if not extents.has_data:
-        return 11.69, 8.27
+def _apply_dynamic_scale(fig, ax, doc, unit_multiplier, scale_denominator):
+    """Calculates Matplotlib axes dimensions mapped to exact real-world scale."""
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
 
-    dxf_width = extents.size.x
-    dxf_height = extents.size.y
-    paper_w_mm = (dxf_width * unit_multiplier) / scale_denominator
-    paper_h_mm = (dxf_height * unit_multiplier) / scale_denominator
-    w_in = max(1.0, min(paper_w_mm / 25.4, 200.0))
-    h_in = max(1.0, min(paper_h_mm / 25.4, 200.0))
-    return w_in, h_in
+    # $INSUNITS: 1=Inches, 4=mm (Standard), 5=cm, 6=Meters
+    insunits = doc.header.get('$INSUNITS', 4)
+    unit_to_mm = {1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0}.get(insunits, 1.0)
+
+    # Calculate the paper size in inches based on selected scale and units
+    final_width_mm = ((abs(x_max - x_min) or 10.0) * unit_to_mm * unit_multiplier) \
+        / scale_denominator
+    final_height_mm = ((abs(y_max - y_min) or 10.0) * unit_to_mm * unit_multiplier) \
+        / scale_denominator
+
+    w_in = max(1.0, min(final_width_mm / 25.4, 200.0))
+    h_in = max(1.0, min(final_height_mm / 25.4, 200.0))
+    fig.set_size_inches(w_in, h_in)
 
 def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: float) -> io.BytesIO:
     """Renders a DXF document's modelspace to a PDF using Matplotlib with exact scale."""
-    w_in, h_in = _calculate_figure_size(msp, unit_multiplier, scale_denominator)
-
-    fig = Figure(figsize=(w_in, h_in), dpi=300)
+    fig = Figure(dpi=300)
 
     # Axe spans the entire figure without margins to perfectly preserve scale
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_facecolor('white')
 
-    ctx = RenderContext(doc)
-    out = MatplotlibBackend(ax)
-
-    config = Configuration(
-        background_policy=BackgroundPolicy.WHITE,
-        color_policy=ColorPolicy.COLOR
-    )
-
-    Frontend(ctx, out, config=config).draw_layout(msp, finalize=True)
+    Frontend(
+        RenderContext(doc),
+        MatplotlibBackend(ax),
+        config=Configuration(
+            background_policy=BackgroundPolicy.WHITE,
+            color_policy=ColorPolicy.COLOR
+        )
+    ).draw_layout(msp, finalize=True)
+    _apply_dynamic_scale(fig, ax, doc, unit_multiplier, scale_denominator)
 
     pdf_bytes = io.BytesIO()
     canvas = FigureCanvasPdf(fig)
@@ -130,15 +132,9 @@ def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: fl
     return pdf_bytes
 
 
-@app.route('/generate_pdf', methods=['POST'])
-def generate_pdf():
-    # pylint: disable=too-many-locals
-    """Generates a PDF from a specified DXF file after filtering layers."""
-    data = request.get_json(silent=True) or {}
-    dxf_filename = data.get('dxf_file')
-    original_name = data.get('original_name', 'export')
+def _parse_pdf_request(data: dict):
+    """Extracts and validates parameters for PDF generation."""
     active_layers = data.get('layers', [])
-
     try:
         unit = float(data.get('unit', 10))
     except (ValueError, TypeError):
@@ -149,11 +145,22 @@ def generate_pdf():
     except (ValueError, TypeError):
         scale = 100.0
 
-    safe_filename = not dxf_filename or '/' in dxf_filename or '\\' in dxf_filename
-    if safe_filename or not dxf_filename.endswith('.dxf'):
+    dxf_file = data.get('dxf_file')
+    is_inv = not dxf_file or '/' in dxf_file or '\\' in dxf_file
+    is_inv = is_inv or not dxf_file.endswith('.dxf')
+    return active_layers, unit, scale, dxf_file, is_inv
+
+@app.route('/generate_pdf', methods=['POST'])
+def generate_pdf():
+    # pylint: disable=too-many-locals
+    """Generates a PDF from a specified DXF file after filtering layers."""
+    data = request.get_json(silent=True) or {}
+    layers, unit, scale, dxf_file, is_invalid = _parse_pdf_request(data)
+
+    if is_invalid:
         return jsonify({'error': 'Ungültiger Dateiname'}), 400
 
-    dxf_path = os.path.join(CONVERT_FOLDER, dxf_filename)
+    dxf_path = os.path.join(CONVERT_FOLDER, dxf_file)
     if not os.path.exists(dxf_path):
         return jsonify({'error': 'DXF-Datei nicht gefunden oder abgelaufen'}), 404
 
@@ -161,27 +168,23 @@ def generate_pdf():
         doc = ezdxf.readfile(dxf_path)
         msp = doc.modelspace()
 
-        entities_to_delete = []
-        for entity in msp:
-            if entity.dxf.layer not in active_layers:
-                entities_to_delete.append(entity)
-
-        for entity in entities_to_delete:
-            msp.delete_entity(entity)
+        for entity in list(msp):
+            if entity.dxf.layer not in layers:
+                msp.delete_entity(entity)
 
         for layer in doc.layers:
-            if layer.dxf.name not in active_layers:
+            if layer.dxf.name not in layers:
                 layer.off()
 
         pdf_bytes = _render_pdf_to_bytes(doc, msp, unit, scale)
         pdf_bytes.seek(0)
-        pdf_download_name = original_name.rsplit('.', 1)[0] + '.pdf'
+        pdf_download_name = data.get('original_name', 'export').rsplit('.', 1)[0] + '.pdf'
 
         return send_file(
             pdf_bytes,
+            mimetype='application/pdf',
             as_attachment=True,
-            download_name=pdf_download_name,
-            mimetype='application/pdf'
+            download_name=pdf_download_name
         )
 
     except OSError as e:
