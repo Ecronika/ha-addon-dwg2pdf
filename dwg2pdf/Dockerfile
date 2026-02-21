@@ -1,25 +1,63 @@
-# Wir erzwingen ein Debian-basiertes Image, da HomeAssistant sonst sein eigenes Alpine-Image nimmt
-# und "apt-get" sowie "dpkg" (für die .deb Datei) dann fehlschlagen würden!
-FROM python:3.11-slim
+# ==========================================================
+# STAGE 1: GCC Builder (Kompiliert GNU LibreDWG für ARM/x86)
+# ==========================================================
+FROM python:3.11-alpine AS builder
 
-# System-Abhängigkeiten installieren (oft nötig für CAD/PDF-Rendering mit matplotlib)
-RUN apt-get update && apt-get install -y \
-    libfontconfig1 \
-    libgl1 \
-    && rm -rf /var/lib/apt/lists/*
+# 1. Alle nötigen C-Compiler und Build-Tools für Alpine Linux installieren
+RUN apk add --no-cache \
+    build-base \
+    automake \
+    libtool \
+    python3-dev \
+    swig \
+    git \
+    texinfo \
+    pcre2-dev
 
-# Arbeitsverzeichnis im Container festlegen
+# 2. GNU LibreDWG Quellcode direkt vom offiziellen Git Repository laden
+WORKDIR /build
+RUN git clone https://git.savannah.gnu.org/git/libredwg.git .
+
+# 3. Das Kommandozeilen-Tool (dwg2dxf) und die Bibliothek aus dem C-Quellcode kompilieren
+RUN sh ./autogen.sh && \
+    ./configure --disable-bindings --enable-trace && \
+    make -j$(nproc) && \
+    make install
+
+# ==========================================================
+# STAGE 2: Runtime (Leichtgewichtiges Ziel-Image)
+# ==========================================================
+FROM python:3.11-alpine
+
+# 1. Nur die zwingend für die Bibliothek nötigen Laufzeit-Pakete installieren
+RUN apk add --no-cache \
+    fontconfig \
+    pcre2 \
+    libstdc++
+
+# 2. Die vorkompilierten Binärdateien aus der "Builder"-Stage herüberkopieren
+COPY --from=builder /usr/local/bin/dwg* /usr/local/bin/
+COPY --from=builder /usr/local/lib/libredwg* /usr/local/lib/
+
+# 3. System mitteilen, wo die neuen .so Laufzeitbibliotheken liegen
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+
+# 4. Arbeitsverzeichnis für unseren Python-Code
 WORKDIR /usr/src/addon
 
-# Python-Pakete (Flask, ezdxf, etc.) kopieren und installieren
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# 5. Python Pakete installieren (Matplotlib, Flask, ezdxf)
+# Alpine benötigt oft C-Compiler für matplotlib, wenn es keine passenden Wheels gibt,
+# wir versuchen es durch vorkompilierte Wheels zu optimieren oder installieren die Basis-Tools kurz
+RUN apk add --no-cache --virtual .build-deps g++ jpeg-dev zlib-dev freetype-dev && \
+    COPY requirements.txt ./ && \
+    pip install --no-cache-dir -r requirements.txt && \
+    apk del .build-deps
 
-# Den gesamten restlichen Code in den Container kopieren
+# 6. Restliche Python Applikation kopieren
 COPY . .
 
-# Ausführungsrechte für das Start-Skript setzen
+# 7. Port öffnen und Skriptberechtigung setzen
+EXPOSE 8123
 RUN chmod a+x /usr/src/addon/run.sh
 
-# Start-Befehl für das Add-on
 CMD [ "/usr/src/addon/run.sh" ]

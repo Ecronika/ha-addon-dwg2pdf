@@ -8,6 +8,12 @@ import time
 import threading
 import io
 import uuid
+import subprocess
+import logging
+
+# Logger konfigurieren
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # pylint: disable=import-error
 from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
@@ -21,7 +27,9 @@ from matplotlib.backends.backend_pdf import FigureCanvasPdf
 app = Flask(__name__)
 
 CONVERT_FOLDER = '/tmp/converted'
+UPLOAD_FOLDER = '/tmp/uploads'
 os.makedirs(CONVERT_FOLDER, exist_ok=True)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
 def _delete_old_files(folder: str, max_age_seconds: int):
@@ -59,22 +67,51 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Endpoint to upload a DXF file."""
+    """Endpoint to upload a DWG or DXF file."""
     if 'file' not in request.files:
         return jsonify({'error': 'Keine Datei gesendet'}), 400
 
     file = request.files['file']
-    if not file or file.filename == '' or not file.filename.lower().endswith('.dxf'):
-        return jsonify({'error': 'Bitte eine gültige DXF-Datei hochladen'}), 400
+    filename = file.filename.lower()
+    
+    if not file or filename == '' or not (filename.endswith('.dwg') or filename.endswith('.dxf')):
+        return jsonify({'error': 'Bitte eine gültige DWG oder DXF Datei hochladen'}), 400
 
     req_id = str(uuid.uuid4())
     unique_dxf_filename = f"{req_id}.dxf"
     final_dxf_path = os.path.join(CONVERT_FOLDER, unique_dxf_filename)
 
     try:
-        file.save(final_dxf_path)
+        if filename.endswith('.dxf'):
+            file.save(final_dxf_path)
+            
+        elif filename.endswith('.dwg'):
+            unique_dwg_filename = f"{req_id}.dwg"
+            temp_dwg_path = os.path.join(UPLOAD_FOLDER, unique_dwg_filename)
+            file.save(temp_dwg_path)
+            
+            logger.info("Starte Konvertierung mit dwg2dxf: %s", temp_dwg_path)
+            
+            # dwg2dxf flags: -m (minimal, gut für parse-compat), -o (output file)
+            command = ["dwg2dxf", "-m", "-o", final_dxf_path, temp_dwg_path]
+            
+            # Führe Befehl aus. LibreDWG schreibt oft Warnungen in STDERR, selbst wenn Erfolg,
+            # daher filtern wir nach dem Exit-Code oder Existenz der Ausgabedatei.
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            
+            if result.returncode != 0:
+                if not os.path.exists(final_dxf_path) or os.path.getsize(final_dxf_path) == 0:
+                    logger.error("dwg2dxf fehlgeschlagen! Code: %d\nSTDERR: %s", result.returncode, result.stderr)
+                    return jsonify({'error': 'DWG Konvertierung fehlgeschlagen.'}), 500
+                else:
+                    logger.warning("dwg2dxf warnte (Code %d), aber DXF existiert.\nSTDERR: %s", result.returncode, result.stderr)
+            
+            logger.info("DWG erfolgreich nach %s konvertiert.", final_dxf_path)
+
     except OSError as e:
         return jsonify({'error': f'Fehler beim Speichern der Datei: {e}'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Unerwarteter Fehler bei der Verarbeitung: {e}'}), 500
 
     return jsonify({
         'success': True,

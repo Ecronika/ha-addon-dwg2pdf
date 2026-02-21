@@ -57,11 +57,11 @@
     <h1>DXF zu PDF Konverter</h1>
 
     <div>
-        <input type="file" id="dwg-upload" name="file" accept=".dxf">
-        <button onclick="uploadFile()">1. DXF Hochladen & Anzeigen</button>
+        <input type="file" id="dwg-upload" name="file" accept=".dwg, .dxf">
+        <button onclick="uploadFile()">1. DWG Laden & Vorschau</button>
         <br>
-        <small style="color:#666; margin-top:5px; display:block;">ℹ️ Bitte <b>ASCII DXF</b> verwenden (kein 'Binary').
-            Empfohlen: AutoCAD 2013 oder 2018 ASCII DXF.</small>
+        <small style="color:#666; margin-top:5px; display:block;">ℹ️ DWG & DXF Uploads unterstützt. Es wird automatisch
+            eine ASCII DXF konvertiert.</small>
     </div>
 
     <div class="container">
@@ -109,7 +109,7 @@
             formData.append("file", fileInput.files[0]);
 
             const container = document.getElementById('viewer-container');
-            container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>Lade DXF hoch... Bitte warten.</p>";
+            container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>Lade & Konvertiere DWG... Bitte warten.</p>";
 
             // Wichtig: Dem Browser Zeit geben, die Upload-Nachricht zu zeichnen
             await new Promise(resolve => setTimeout(resolve, 50));
