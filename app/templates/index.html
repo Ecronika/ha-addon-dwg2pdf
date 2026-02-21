@@ -44,6 +44,7 @@
 
 <script>
     let currentDxfFile = "";
+    let currentOriginalName = "";
     let viewer = null;
 
     async function uploadFile() {
@@ -61,6 +62,7 @@
 
         if (data.success) {
             currentDxfFile = data.dxf_file;
+            currentOriginalName = data.original_name;
             loadAndRenderDXF(currentDxfFile);
         } else {
             alert("Fehler: " + data.error);
@@ -115,11 +117,9 @@
             checkbox.id = 'layer-' + layerName;
 
             // Optional: Wenn der Viewer das Ein-/Ausblenden in Echtzeit unterstützt
-            checkbox.addEventListener('change', (e) => {
-                // Hier könnte man den Layer im Viewer sofort ausblenden, 
-                // z.B. viewer.SetLayerVisibility(layerName, e.target.checked);
-                // (Abhängig von der exakten API der gewählten JS-Bibliothek)
-            });
+            // checkbox.addEventListener('change', (e) => {
+            //     viewer.SetLayerVisibility(layerName, e.target.checked);
+            // });
 
             const label = document.createElement('label');
             label.htmlFor = 'layer-' + layerName;
@@ -132,15 +132,19 @@
     }
 
     async function requestPDF() {
+        const btn = document.getElementById('btn-pdf');
+        btn.disabled = true;
+        const originalText = btn.innerText;
+        btn.innerText = "Erstelle PDF... (Bitte warten)";
+        
         // Sammelt alle AKTIVEN Checkboxen aus der Sidebar
         const checkboxes = document.querySelectorAll('.layer-checkbox:checked');
         const activeLayers = Array.from(checkboxes).map(cb => cb.value);
 
-        // ... [Der restliche requestPDF() Code aus dem vorherigen Schritt bleibt identisch] ...
         const response = await fetch('/generate_pdf', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dxf_file: currentDxfFile, layers: activeLayers })
+            body: JSON.stringify({ dxf_file: currentDxfFile, original_name: currentOriginalName, layers: activeLayers })
         });
 
         if (response.ok) {
@@ -148,12 +152,27 @@
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = currentDxfFile.replace('.dxf', '.pdf');
+            
+            // Hole Dateiname aus Response Header, falls vorhanden
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let downloadName = currentOriginalName.replace('.dwg', '.pdf'); // Fallback
+            if (contentDisposition && contentDisposition.includes('filename=')) {
+                const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                if (match) downloadName = match[1];
+            }
+            
+            a.download = downloadName;
             document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
         } else {
-            alert("Fehler bei der PDF-Erstellung.");
+            const errData = await response.json();
+            alert("Fehler bei der PDF-Erstellung: " + (errData.error || response.statusText));
         }
+        
+        btn.innerText = originalText;
+        btn.disabled = false;
     }
 </script>
 </body>

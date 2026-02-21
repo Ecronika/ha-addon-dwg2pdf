@@ -3,7 +3,7 @@
 Thumbs.db
 
 # ⚠️ GANZ WICHTIG: ODA File Converter (Lizenzschutz!)
-*.deb
+# *.deb (Wurde für das private Repo freigegeben)
 *.rpm
 ODAFileConverter*.tar.gz
 

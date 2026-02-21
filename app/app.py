@@ -1,6 +1,11 @@
 import os
 import subprocess
-from flask import Flask, render_template, request, send_file, jsonify
+import uuid
+import shutil
+import time
+import threading
+import io
+from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
 import ezdxf
 from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
@@ -14,9 +19,29 @@ CONVERT_FOLDER = '/tmp/converted'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(CONVERT_FOLDER, exist_ok=True)
 
+# Background cleanup thread
+def cleanup_old_files():
+    while True:
+        time.sleep(3600) # Check every hour
+        now = time.time()
+        for folder in [UPLOAD_FOLDER, CONVERT_FOLDER]:
+            try:
+                for filename in os.listdir(folder):
+                    file_path = os.path.join(folder, filename)
+                    if os.path.isfile(file_path):
+                        if now - os.path.getmtime(file_path) > 3600: # Older than 1 hour
+                            try:
+                                os.remove(file_path)
+                            except Exception as e:
+                                print(f"Error deleting file {file_path}: {e}")
+            except Exception as e:
+                print(f"Error accessing directory {folder}: {e}")
+
+cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
+cleanup_thread.start()
+
 @app.route('/')
 def index():
-    # Lädt die Startseite mit dem Upload-Formular
     return render_template('index.html')
 
 @app.route('/upload', methods=['POST'])
@@ -28,32 +53,51 @@ def upload_file():
     if file.filename == '' or not file.filename.lower().endswith('.dwg'):
         return jsonify({'error': 'Bitte eine gültige DWG-Datei hochladen'}), 400
 
-    # 1. DWG speichern
-    dwg_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    # 1. Unique ID für diesen Vorgang
+    req_id = str(uuid.uuid4())
+    req_in_dir = os.path.join(UPLOAD_FOLDER, req_id)
+    req_out_dir = os.path.join(CONVERT_FOLDER, req_id)
+    os.makedirs(req_in_dir, exist_ok=True)
+    os.makedirs(req_out_dir, exist_ok=True)
+
+    dwg_path = os.path.join(req_in_dir, file.filename)
     file.save(dwg_path)
 
     # 2. ODA Converter aufrufen (DWG zu DXF)
-    # Syntax: ODAFileConverter <InputFolder> <OutputFolder> <Version> <Format> <Recurse> <Audit>
     try:
-        subprocess.run([
+        result = subprocess.run([
             'ODAFileConverter', 
-            UPLOAD_FOLDER, 
-            CONVERT_FOLDER, 
+            req_in_dir, 
+            req_out_dir, 
             'ACAD2018', # Ziel-Version
             'DXF',      # Ziel-Format
             '0',        # Keine Unterordner
             '1'         # Audit (Fehlerkorrektur)
-        ], check=True)
-    except subprocess.CalledProcessError as e:
-        return jsonify({'error': f'Konvertierung fehlgeschlagen: {e}'}), 500
+        ], capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            return jsonify({'error': f'Konvertierung fehlgeschlagen. Exit code: {result.returncode}'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Fehler beim Ausführen von ODAFileConverter: {e}'}), 500
 
-    # DXF Dateiname generieren
-    dxf_filename = file.filename.rsplit('.', 1)[0] + '.dxf'
+    # DXF Dateiname (gleicher Name wie DWG nur mit .dxf Endung)
+    dxf_filename_original = file.filename.rsplit('.', 1)[0] + '.dxf'
+    source_dxf_path = os.path.join(req_out_dir, dxf_filename_original)
     
-    # 3. Dem Frontend mitteilen, dass die DXF bereit ist
-    return jsonify({'success': True, 'dxf_file': dxf_filename})
+    if not os.path.exists(source_dxf_path):
+        return jsonify({'error': 'DXF Datei wurde nicht generiert (Fehlerhafte DWG?)'}), 500
+        
+    # Verschieben ins Haupt-Convert-Verzeichnis mit eindeutigem Namen
+    unique_dxf_filename = f"{req_id}.dxf"
+    final_dxf_path = os.path.join(CONVERT_FOLDER, unique_dxf_filename)
+    shutil.move(source_dxf_path, final_dxf_path)
+    
+    # Aufräumen der temporären Request-Verzeichnisse
+    shutil.rmtree(req_in_dir, ignore_errors=True)
+    shutil.rmtree(req_out_dir, ignore_errors=True)
 
-from flask import send_from_directory # Oben bei den anderen Flask-Imports hinzufügen
+    # 3. Dem Frontend mitteilen, dass die DXF bereit ist
+    return jsonify({'success': True, 'dxf_file': unique_dxf_filename, 'original_name': file.filename})
 
 @app.route('/dxf/<filename>')
 def serve_dxf(filename):
@@ -64,32 +108,55 @@ def serve_dxf(filename):
 def generate_pdf():
     data = request.json
     dxf_filename = data.get('dxf_file')
+    original_name = data.get('original_name', 'export')
     active_layers = data.get('layers', []) # Array der gewählten Layer
     
-    dxf_path = os.path.join(CONVERT_FOLDER, dxf_filename)
-    pdf_path = os.path.join(CONVERT_FOLDER, dxf_filename.replace('.dxf', '.pdf'))
-
-    # 4. DXF mit ezdxf öffnen und PDF rendern
-    try:
-        doc = ezdxf.readfile(dxf_path)
+    if not dxf_filename:
+        return jsonify({'error': 'Keine DXF-Datei angegeben'}), 400
         
-        # HIER: Logik um nicht-gewählte Layer auszublenden/zu löschen
+    dxf_path = os.path.join(CONVERT_FOLDER, dxf_filename)
+    if not os.path.exists(dxf_path):
+        return jsonify({'error': 'DXF-Datei nicht gefunden oder abgelaufen'}), 404
+
+    try:
+        # 4. DXF mit ezdxf öffnen und PDF rendern
+        doc = ezdxf.readfile(dxf_path)
+        msp = doc.modelspace()
+        
+        # Logik um nicht-gewählte Layer auszublenden/zu löschen
+        # Wir durchlaufen alle Elemente im Modelspace. 
+        # Falls ihr Layer nicht in active_layers ist, entfernen wir das Element.
+        entities_to_delete = []
+        for entity in msp:
+            if entity.dxf.layer not in active_layers:
+                entities_to_delete.append(entity)
+                
+        for entity in entities_to_delete:
+            msp.delete_entity(entity)
+
         for layer in doc.layers:
             if layer.dxf.name not in active_layers:
-                layer.off() # Layer ausschalten
+                layer.off()
 
         # Matplotlib für PDF-Export konfigurieren
-        fig = plt.figure()
+        fig = plt.figure(figsize=(11.69, 8.27), dpi=300) # A4 Querformat
         ax = fig.add_axes([0, 0, 1, 1])
+        
         ctx = RenderContext(doc)
         out = MatplotlibBackend(ax)
-        Frontend(ctx, out).draw_layout(doc.modelspace(), finalize=True)
+        Frontend(ctx, out).draw_layout(msp, finalize=True)
         
-        fig.savefig(pdf_path, format='pdf')
+        # PDF in Speicher (BytesIO) schreiben statt auf die Festplatte
+        pdf_bytes = io.BytesIO()
+        fig.savefig(pdf_bytes, format='pdf')
         plt.close(fig)
+        
+        pdf_bytes.seek(0)
+        
+        pdf_download_name = original_name.rsplit('.', 1)[0] + '.pdf'
 
         # 5. PDF zum Download anbieten
-        return send_file(pdf_path, as_attachment=True)
+        return send_file(pdf_bytes, as_attachment=True, download_name=pdf_download_name, mimetype='application/pdf')
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
