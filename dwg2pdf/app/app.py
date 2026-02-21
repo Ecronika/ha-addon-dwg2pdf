@@ -8,8 +8,11 @@ import time
 import threading
 import io
 import uuid
+
+# pylint: disable=import-error
 from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
 import ezdxf
+from ezdxf import bbox
 from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
@@ -87,9 +90,27 @@ def serve_dxf(filename):
     return send_from_directory(CONVERT_FOLDER, filename)
 
 
-def _render_pdf_to_bytes(doc, msp) -> io.BytesIO:
-    """Renders a DXF document's modelspace to a PDF using Matplotlib."""
-    fig = Figure(figsize=(11.69, 8.27), dpi=300)
+def _calculate_figure_size(msp, unit_multiplier: float, scale_denominator: float) -> tuple:
+    """Calculates the Matplotlib Figure dimensions in inches to achieve true scale."""
+    extents = bbox.extents(msp, fast=True)
+    if not extents.has_data:
+        return 11.69, 8.27
+
+    dxf_width = extents.size.x
+    dxf_height = extents.size.y
+    paper_w_mm = (dxf_width * unit_multiplier) / scale_denominator
+    paper_h_mm = (dxf_height * unit_multiplier) / scale_denominator
+    w_in = max(1.0, min(paper_w_mm / 25.4, 200.0))
+    h_in = max(1.0, min(paper_h_mm / 25.4, 200.0))
+    return w_in, h_in
+
+def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: float) -> io.BytesIO:
+    """Renders a DXF document's modelspace to a PDF using Matplotlib with exact scale."""
+    w_in, h_in = _calculate_figure_size(msp, unit_multiplier, scale_denominator)
+
+    fig = Figure(figsize=(w_in, h_in), dpi=300)
+
+    # Axe spans the entire figure without margins to perfectly preserve scale
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_facecolor('white')
 
@@ -111,11 +132,22 @@ def _render_pdf_to_bytes(doc, msp) -> io.BytesIO:
 
 @app.route('/generate_pdf', methods=['POST'])
 def generate_pdf():
+    # pylint: disable=too-many-locals
     """Generates a PDF from a specified DXF file after filtering layers."""
     data = request.get_json(silent=True) or {}
     dxf_filename = data.get('dxf_file')
     original_name = data.get('original_name', 'export')
     active_layers = data.get('layers', [])
+
+    try:
+        unit = float(data.get('unit', 10))
+    except (ValueError, TypeError):
+        unit = 10.0
+
+    try:
+        scale = float(data.get('scale', 100))
+    except (ValueError, TypeError):
+        scale = 100.0
 
     safe_filename = not dxf_filename or '/' in dxf_filename or '\\' in dxf_filename
     if safe_filename or not dxf_filename.endswith('.dxf'):
@@ -141,7 +173,7 @@ def generate_pdf():
             if layer.dxf.name not in active_layers:
                 layer.off()
 
-        pdf_bytes = _render_pdf_to_bytes(doc, msp)
+        pdf_bytes = _render_pdf_to_bytes(doc, msp, unit, scale)
         pdf_bytes.seek(0)
         pdf_download_name = original_name.rsplit('.', 1)[0] + '.pdf'
 

@@ -75,6 +75,19 @@
                 <p>Noch keine Ebenen geladen.</p>
             </div>
             <hr>
+            <h3>Maßstab & Einheit</h3>
+            <div style="margin-bottom: 10px;">
+                <label for="dxf-unit" style="display:inline-block; width: 80px;">Einheit:</label>
+                <select id="dxf-unit" style="width: 140px;">
+                    <option value="1000">Meter (m)</option>
+                    <option value="10" selected>Zentimeter (cm)</option>
+                    <option value="1">Millimeter (mm)</option>
+                </select>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label for="pdf-scale" style="display:inline-block; width: 80px;">Maßstab 1:</label>
+                <input type="number" id="pdf-scale" value="100" style="width: 132px;" min="1">
+            </div>
             <button onclick="requestPDF()" id="btn-pdf" style="display:none; width: 100%;">2. PDF Erstellen</button>
         </div>
     </div>
@@ -228,11 +241,21 @@
             const checkboxes = document.querySelectorAll('.layer-checkbox:checked');
             const activeLayers = Array.from(checkboxes).map(cb => cb.value);
 
+            // Werte für Maßstab und Einheit holen
+            const unitMultiplier = parseFloat(document.getElementById('dxf-unit').value);
+            const scaleDenominator = parseFloat(document.getElementById('pdf-scale').value);
+
             try {
                 const response = await fetch('generate_pdf', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ dxf_file: currentDxfFile, original_name: currentOriginalName, layers: activeLayers })
+                    body: JSON.stringify({
+                        dxf_file: currentDxfFile,
+                        original_name: currentOriginalName,
+                        layers: activeLayers,
+                        unit: unitMultiplier,
+                        scale: scaleDenominator
+                    })
                 });
 
                 if (response.ok) {
