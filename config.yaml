@@ -1,0 +1,14 @@
+name: "DWG to PDF Converter"
+version: "1.0.0"
+slug: "dwg2pdf_converter"
+description: "Web-App zur Vorschau von DWG-Plänen, Ebenen-Steuerung und PDF-Export."
+url: "https://github.com/IHR-GITHUB-NAME/ha-addon-dwg2pdf"
+arch:
+  - amd64
+  - aarch64
+boot: auto
+ingress: true
+ingress_port: 5000
+ports:
+  5000/tcp: 5000
+webui: "http://[HOST]:[PORT:5000]"
