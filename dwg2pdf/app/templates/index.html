@@ -92,19 +92,28 @@
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
 
-            document.getElementById('viewer-container').innerHTML = "<p style='text-align:center; margin-top: 250px;'>Lade DXF hoch... Bitte warten.</p>";
+            const container = document.getElementById('viewer-container');
+            container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>Lade DXF hoch... Bitte warten.</p>";
 
-            // Datei an Flask senden
-            const response = await fetch('/upload', { method: 'POST', body: formData });
-            const data = await response.json();
+            // Wichtig: Dem Browser Zeit geben, die Upload-Nachricht zu zeichnen
+            await new Promise(resolve => setTimeout(resolve, 50));
 
-            if (data.success) {
-                currentDxfFile = data.dxf_file;
-                currentOriginalName = data.original_name;
-                loadAndRenderDXF(currentDxfFile);
-            } else {
-                alert("Fehler: " + data.error);
-                document.getElementById('viewer-container').innerHTML = "<p>Fehler beim Upload.</p>";
+            try {
+                // Datei an Flask senden
+                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.success) {
+                    currentDxfFile = data.dxf_file;
+                    currentOriginalName = data.original_name;
+                    await loadAndRenderDXF(currentDxfFile);
+                } else {
+                    alert("Fehler: " + data.error);
+                    container.innerHTML = "<p>Fehler beim Upload: " + data.error + "</p>";
+                }
+            } catch (err) {
+                console.error("Upload Error:", err);
+                container.innerHTML = "<p style='color:red;'>Verbindungsfehler beim Upload.</p>";
             }
         }
 
@@ -113,18 +122,27 @@
             container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>1/3: Lade DXF-Datei vom Server herunter...</p>";
 
             try {
+                // Kurz warten, damit "1/3" gezeichnet wird
+                await new Promise(resolve => setTimeout(resolve, 50));
+                console.log("Hole DXF vom Server:", filename);
+
                 // 1. DXF-Datei vom Python-Server holen
                 const response = await fetch('/dxf/' + filename);
+                if (!response.ok) throw new Error("DXF konnte nicht geladen werden (Status " + response.status + ")");
+
                 const dxfText = await response.text();
+                console.log("DXF geladen, Größe:", dxfText.length, "Bytes");
 
                 // 2. DXF parsen
                 container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>2/3: Analysiere DXF-Struktur (Browser rechnet, bitte warten)...</p>";
 
-                // Wir geben dem Browser einen winzigen Moment zum Zeichnen des obigen Textes, da der parseSync den Thread blockiert
+                // Wir geben dem Browser einen winzigen Moment zum Zeichnen des obigen Textes
                 await new Promise(resolve => setTimeout(resolve, 50));
 
+                console.log("Starte DXF Parser...");
                 const parser = new window.DxfParser();
                 const dxf = parser.parseSync(dxfText);
+                console.log("DXF geparst:", dxf);
 
                 // 3. Container vorbereiten und Plan rendern
                 container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>3/3: Zeichne Plan in den Viewer...</p>";
@@ -133,6 +151,7 @@
 
                 container.innerHTML = ""; // Lade-Text entfernen
 
+                console.log("Initialisiere ThreeDxf Viewer...");
                 // three-dxf Viewer initialisieren (Breite und Höhe des Containers)
                 viewer = new window.ThreeDxf.Viewer(dxf, container, container.clientWidth, container.clientHeight);
 
@@ -140,10 +159,17 @@
                 buildLayerSidebar(dxf.tables.layer.layers);
 
                 document.getElementById('btn-pdf').style.display = 'block';
+                console.log("Fertig gerendert!");
 
             } catch (error) {
                 console.error("Fehler beim Rendern:", error);
-                container.innerHTML = "<p style='text-align:center; margin-top: 250px; color:red;'>Fehler bei der Anzeige der Vorschau. Die DXF ist evtl. zu groß oder fehlerhaft.</p>";
+
+                // Zeige den genauen Fehler auf dem Bildschirm
+                container.innerHTML = "<p style='text-align:center; margin-top: 220px; color:red;'>" +
+                    "<b>Fehler bei der Anzeige der Vorschau.</b><br><br>" +
+                    error.message + "<br><br>" +
+                    "Die DXF ist evtl. zu groß, nutzt nicht unterstützte Features oder ist keine ASCII-DXF." +
+                    "</p>";
             }
         }
 
