@@ -1,5 +1,5 @@
 import os
-import subprocess
+import uuid
 import uuid
 import shutil
 import time
@@ -50,53 +50,23 @@ def upload_file():
         return jsonify({'error': 'Keine Datei gesendet'}), 400
     
     file = request.files['file']
-    if file.filename == '' or not file.filename.lower().endswith('.dwg'):
-        return jsonify({'error': 'Bitte eine gültige DWG-Datei hochladen'}), 400
+    if file.filename == '' or not file.filename.lower().endswith('.dxf'):
+        return jsonify({'error': 'Bitte eine gültige DXF-Datei hochladen'}), 400
 
     # 1. Unique ID für diesen Vorgang
     req_id = str(uuid.uuid4())
-    req_in_dir = os.path.join(UPLOAD_FOLDER, req_id)
-    req_out_dir = os.path.join(CONVERT_FOLDER, req_id)
-    os.makedirs(req_in_dir, exist_ok=True)
-    os.makedirs(req_out_dir, exist_ok=True)
-
-    dwg_path = os.path.join(req_in_dir, file.filename)
-    file.save(dwg_path)
-
-    # 2. ODA Converter aufrufen (DWG zu DXF)
-    try:
-        result = subprocess.run([
-            'ODAFileConverter', 
-            req_in_dir, 
-            req_out_dir, 
-            'ACAD2018', # Ziel-Version
-            'DXF',      # Ziel-Format
-            '0',        # Keine Unterordner
-            '1'         # Audit (Fehlerkorrektur)
-        ], capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            return jsonify({'error': f'Konvertierung fehlgeschlagen. Exit code: {result.returncode}'}), 500
-    except Exception as e:
-        return jsonify({'error': f'Fehler beim Ausführen von ODAFileConverter: {e}'}), 500
-
-    # DXF Dateiname (gleicher Name wie DWG nur mit .dxf Endung)
-    dxf_filename_original = file.filename.rsplit('.', 1)[0] + '.dxf'
-    source_dxf_path = os.path.join(req_out_dir, dxf_filename_original)
     
-    if not os.path.exists(source_dxf_path):
-        return jsonify({'error': 'DXF Datei wurde nicht generiert (Fehlerhafte DWG?)'}), 500
-        
-    # Verschieben ins Haupt-Convert-Verzeichnis mit eindeutigem Namen
+    # Da wir nun direkt DXF hochladen, überspringen wir den ODA-Konverter.
+    # Wir speichern die DXF direkt im CONVERT_FOLDER unter der eindeutigen ID.
     unique_dxf_filename = f"{req_id}.dxf"
     final_dxf_path = os.path.join(CONVERT_FOLDER, unique_dxf_filename)
-    shutil.move(source_dxf_path, final_dxf_path)
     
-    # Aufräumen der temporären Request-Verzeichnisse
-    shutil.rmtree(req_in_dir, ignore_errors=True)
-    shutil.rmtree(req_out_dir, ignore_errors=True)
+    try:
+        file.save(final_dxf_path)
+    except Exception as e:
+        return jsonify({'error': f'Fehler beim Speichern der Datei: {e}'}), 500
 
-    # 3. Dem Frontend mitteilen, dass die DXF bereit ist
+    # 2. Dem Frontend mitteilen, dass die DXF bereit ist
     return jsonify({'success': True, 'dxf_file': unique_dxf_filename, 'original_name': file.filename})
 
 @app.route('/dxf/<filename>')

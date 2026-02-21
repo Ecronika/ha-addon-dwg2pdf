@@ -1,33 +1,71 @@
 <!DOCTYPE html>
 <html lang="de">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DWG zu PDF Konverter</title>
+    <title>DXF zu PDF Konverter</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; }
-        .container { display: flex; gap: 20px; margin-top: 20px; }
-        #viewer-container { flex: 3; height: 600px; background: #fff; border: 1px solid #ccc; }
-        #sidebar { flex: 1; background: #fff; padding: 15px; border: 1px solid #ccc; max-height: 600px; overflow-y: auto; }
-        .layer-item { margin-bottom: 8px; }
-        button { padding: 10px 15px; background: #03a9f4; color: white; border: none; cursor: pointer; }
-        button:hover { background: #0288d1; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        #viewer-container {
+            flex: 3;
+            height: 600px;
+            background: #fff;
+            border: 1px solid #ccc;
+        }
+
+        #sidebar {
+            flex: 1;
+            background: #fff;
+            padding: 15px;
+            border: 1px solid #ccc;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .layer-item {
+            margin-bottom: 8px;
+        }
+
+        button {
+            padding: 10px 15px;
+            background: #03a9f4;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0288d1;
+        }
     </style>
 </head>
+
 <body>
 
-    <h1>DWG zu PDF Konverter</h1>
-    
+    <h1>DXF zu PDF Konverter</h1>
+
     <div>
-        <input type="file" id="dwg-upload" accept=".dwg">
-        <button onclick="uploadFile()">1. DWG Hochladen & Konvertieren</button>
+        <input type="file" id="dwg-upload" accept=".dxf">
+        <button onclick="uploadFile()">1. DXF Hochladen & Anzeigen</button>
     </div>
 
     <div class="container">
         <div id="viewer-container">
             <p style="text-align:center; margin-top: 250px; color: #888;">Viewer-Vorschau (Wartet auf Datei...)</p>
         </div>
-        
+
         <div id="sidebar">
             <h3>Ebenen (Layers)</h3>
             <div id="layer-list">
@@ -38,142 +76,143 @@
         </div>
     </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three-dxf@0.4.3/dist/three-dxf.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three-dxf@0.4.3/dist/three-dxf.js"></script>
 
-<script>
-    let currentDxfFile = "";
-    let currentOriginalName = "";
-    let viewer = null;
+    <script>
+        let currentDxfFile = "";
+        let currentOriginalName = "";
+        let viewer = null;
 
-    async function uploadFile() {
-        const fileInput = document.getElementById('dwg-upload');
-        if (fileInput.files.length === 0) return alert("Bitte Datei wählen.");
+        async function uploadFile() {
+            const fileInput = document.getElementById('dwg-upload');
+            if (fileInput.files.length === 0) return alert("Bitte Datei wählen.");
 
-        const formData = new FormData();
-        formData.append("file", fileInput.files[0]);
-        
-        document.getElementById('viewer-container').innerHTML = "<p style='text-align:center; margin-top: 250px;'>Konvertiere DWG zu DXF... Bitte warten.</p>";
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
 
-        // Datei an Flask senden
-        const response = await fetch('/upload', { method: 'POST', body: formData });
-        const data = await response.json();
+            document.getElementById('viewer-container').innerHTML = "<p style='text-align:center; margin-top: 250px;'>Lade DXF hoch... Bitte warten.</p>";
 
-        if (data.success) {
-            currentDxfFile = data.dxf_file;
-            currentOriginalName = data.original_name;
-            loadAndRenderDXF(currentDxfFile);
-        } else {
-            alert("Fehler: " + data.error);
-            document.getElementById('viewer-container').innerHTML = "<p>Fehler bei der Konvertierung.</p>";
-        }
-    }
+            // Datei an Flask senden
+            const response = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await response.json();
 
-    async function loadAndRenderDXF(filename) {
-        document.getElementById('viewer-container').innerHTML = "<p style='text-align:center; margin-top: 250px;'>Lade Plan in den Viewer...</p>";
-
-        try {
-            // 1. DXF-Datei vom Python-Server holen
-            const response = await fetch('/dxf/' + filename);
-            const dxfText = await response.text();
-
-            // 2. DXF parsen
-            const parser = new window.DxfParser();
-            const dxf = parser.parseSync(dxfText);
-
-            // 3. Container vorbereiten und Plan rendern
-            const container = document.getElementById('viewer-container');
-            container.innerHTML = ""; // Lade-Text entfernen
-            
-            // three-dxf Viewer initialisieren (Breite und Höhe des Containers)
-            viewer = new window.ThreeDxf.Viewer(dxf, container, container.clientWidth, container.clientHeight);
-
-            // 4. Layer-Liste (Ebenen) auslesen und Checkboxen bauen
-            buildLayerSidebar(dxf.tables.layer.layers);
-
-            document.getElementById('btn-pdf').style.display = 'block';
-
-        } catch (error) {
-            console.error("Fehler beim Rendern:", error);
-            document.getElementById('viewer-container').innerHTML = "<p>Fehler bei der Anzeige der Vorschau.</p>";
-        }
-    }
-
-    function buildLayerSidebar(layers) {
-        const layerListDiv = document.getElementById('layer-list');
-        layerListDiv.innerHTML = ""; // Leeren
-
-        // Durch alle gefundenen Layer iterieren
-        for (const [layerName, layerData] of Object.entries(layers)) {
-            const div = document.createElement('div');
-            div.className = 'layer-item';
-
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'layer-checkbox';
-            checkbox.value = layerName;
-            checkbox.checked = true; // Standardmäßig sind alle Layer an
-            checkbox.id = 'layer-' + layerName;
-
-            // Optional: Wenn der Viewer das Ein-/Ausblenden in Echtzeit unterstützt
-            // checkbox.addEventListener('change', (e) => {
-            //     viewer.SetLayerVisibility(layerName, e.target.checked);
-            // });
-
-            const label = document.createElement('label');
-            label.htmlFor = 'layer-' + layerName;
-            label.innerText = " " + layerName;
-
-            div.appendChild(checkbox);
-            div.appendChild(label);
-            layerListDiv.appendChild(div);
-        }
-    }
-
-    async function requestPDF() {
-        const btn = document.getElementById('btn-pdf');
-        btn.disabled = true;
-        const originalText = btn.innerText;
-        btn.innerText = "Erstelle PDF... (Bitte warten)";
-        
-        // Sammelt alle AKTIVEN Checkboxen aus der Sidebar
-        const checkboxes = document.querySelectorAll('.layer-checkbox:checked');
-        const activeLayers = Array.from(checkboxes).map(cb => cb.value);
-
-        const response = await fetch('/generate_pdf', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dxf_file: currentDxfFile, original_name: currentOriginalName, layers: activeLayers })
-        });
-
-        if (response.ok) {
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            
-            // Hole Dateiname aus Response Header, falls vorhanden
-            const contentDisposition = response.headers.get('Content-Disposition');
-            let downloadName = currentOriginalName.replace('.dwg', '.pdf'); // Fallback
-            if (contentDisposition && contentDisposition.includes('filename=')) {
-                const match = contentDisposition.match(/filename="?([^"]+)"?/);
-                if (match) downloadName = match[1];
+            if (data.success) {
+                currentDxfFile = data.dxf_file;
+                currentOriginalName = data.original_name;
+                loadAndRenderDXF(currentDxfFile);
+            } else {
+                alert("Fehler: " + data.error);
+                document.getElementById('viewer-container').innerHTML = "<p>Fehler beim Upload.</p>";
             }
-            
-            a.download = downloadName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        } else {
-            const errData = await response.json();
-            alert("Fehler bei der PDF-Erstellung: " + (errData.error || response.statusText));
         }
-        
-        btn.innerText = originalText;
-        btn.disabled = false;
-    }
-</script>
+
+        async function loadAndRenderDXF(filename) {
+            document.getElementById('viewer-container').innerHTML = "<p style='text-align:center; margin-top: 250px;'>Lade Plan in den Viewer...</p>";
+
+            try {
+                // 1. DXF-Datei vom Python-Server holen
+                const response = await fetch('/dxf/' + filename);
+                const dxfText = await response.text();
+
+                // 2. DXF parsen
+                const parser = new window.DxfParser();
+                const dxf = parser.parseSync(dxfText);
+
+                // 3. Container vorbereiten und Plan rendern
+                const container = document.getElementById('viewer-container');
+                container.innerHTML = ""; // Lade-Text entfernen
+
+                // three-dxf Viewer initialisieren (Breite und Höhe des Containers)
+                viewer = new window.ThreeDxf.Viewer(dxf, container, container.clientWidth, container.clientHeight);
+
+                // 4. Layer-Liste (Ebenen) auslesen und Checkboxen bauen
+                buildLayerSidebar(dxf.tables.layer.layers);
+
+                document.getElementById('btn-pdf').style.display = 'block';
+
+            } catch (error) {
+                console.error("Fehler beim Rendern:", error);
+                document.getElementById('viewer-container').innerHTML = "<p>Fehler bei der Anzeige der Vorschau.</p>";
+            }
+        }
+
+        function buildLayerSidebar(layers) {
+            const layerListDiv = document.getElementById('layer-list');
+            layerListDiv.innerHTML = ""; // Leeren
+
+            // Durch alle gefundenen Layer iterieren
+            for (const [layerName, layerData] of Object.entries(layers)) {
+                const div = document.createElement('div');
+                div.className = 'layer-item';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'layer-checkbox';
+                checkbox.value = layerName;
+                checkbox.checked = true; // Standardmäßig sind alle Layer an
+                checkbox.id = 'layer-' + layerName;
+
+                // Optional: Wenn der Viewer das Ein-/Ausblenden in Echtzeit unterstützt
+                // checkbox.addEventListener('change', (e) => {
+                //     viewer.SetLayerVisibility(layerName, e.target.checked);
+                // });
+
+                const label = document.createElement('label');
+                label.htmlFor = 'layer-' + layerName;
+                label.innerText = " " + layerName;
+
+                div.appendChild(checkbox);
+                div.appendChild(label);
+                layerListDiv.appendChild(div);
+            }
+        }
+
+        async function requestPDF() {
+            const btn = document.getElementById('btn-pdf');
+            btn.disabled = true;
+            const originalText = btn.innerText;
+            btn.innerText = "Erstelle PDF... (Bitte warten)";
+
+            // Sammelt alle AKTIVEN Checkboxen aus der Sidebar
+            const checkboxes = document.querySelectorAll('.layer-checkbox:checked');
+            const activeLayers = Array.from(checkboxes).map(cb => cb.value);
+
+            const response = await fetch('/generate_pdf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dxf_file: currentDxfFile, original_name: currentOriginalName, layers: activeLayers })
+            });
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+
+                // Hole Dateiname aus Response Header, falls vorhanden
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let downloadName = currentOriginalName.replace('.dxf', '.pdf'); // Fallback
+                if (contentDisposition && contentDisposition.includes('filename=')) {
+                    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+                    if (match) downloadName = match[1];
+                }
+
+                a.download = downloadName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            } else {
+                const errData = await response.json();
+                alert("Fehler bei der PDF-Erstellung: " + (errData.error || response.statusText));
+            }
+
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    </script>
 </body>
+
 </html>
