@@ -81,7 +81,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three-dxf@1.3.1/dist/three-dxf.js"></script>
+    <script src="static/three-dxf.js"></script>
 
     <script>
         let currentDxfFile = "";
@@ -195,46 +195,20 @@
                 checkbox.checked = true; // Standardmäßig sind alle Layer an
                 checkbox.id = 'layer-' + layerName;
 
-                // Live-Vorschau: Rendert die Szene neu, gefiltert nach Layern
-                checkbox.addEventListener('change', () => {
-                    const activeLayers = Array.from(document.querySelectorAll('.layer-checkbox:checked')).map(cb => cb.value);
+                // Live-Vorschau: Blendet Three.js Objekte anhand des Layer-Namens ein/aus
+                checkbox.addEventListener('change', (e) => {
+                    const scene = viewer.scene;
+                    const isVisible = e.target.checked;
 
-                    // Filtere das DXF-Objekt temporär
-                    window.currentDxfObject.entities = window.originalDxfEntities.filter(entity => {
-                        return activeLayers.includes(entity.layer);
-                    });
-
-                    // Kamera-Einstellungen sichern, damit wir beim Neuzeichnen nicht wegspringen
-                    let oldCamPos, oldCamZoom, oldTarget;
-                    if (viewer && viewer.camera) {
-                        oldCamPos = viewer.camera.position.clone();
-                        oldCamZoom = viewer.camera.zoom;
-                        if (viewer.controls && viewer.controls.target) {
-                            oldTarget = viewer.controls.target.clone();
-                        }
-                    }
-
-                    // Container leeren und Viewer komplett neu aufbauen (da three-dxf keine Live-Filter bietet)
-                    const container = document.getElementById('viewer-container');
-                    container.innerHTML = "";
-
-                    viewer = new window.ThreeDxf.Viewer(
-                        window.currentDxfObject,
-                        container,
-                        container.clientWidth,
-                        container.clientHeight,
-                        window.currentFont
-                    );
-
-                    // Kamera wiederherstellen
-                    if (oldCamPos && viewer.camera) {
-                        viewer.camera.position.copy(oldCamPos);
-                        viewer.camera.zoom = oldCamZoom;
-                        viewer.camera.updateProjectionMatrix();
-                        if (oldTarget && viewer.controls) {
-                            viewer.controls.target.copy(oldTarget);
-                            viewer.controls.update();
-                        }
+                    if (scene) {
+                        // Traverse geht rekursiv durch alle Untergruppen und Blöcke im 3D-Modell
+                        scene.traverse(child => {
+                            if (child.userData && child.userData.layer === layerName) {
+                                child.visible = isVisible;
+                            }
+                        });
+                        // Neu zeichnen
+                        if (viewer.render) viewer.render();
                     }
                 });
 
