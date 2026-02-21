@@ -5,7 +5,7 @@ FROM python:3.11-slim
 # System-Abhängigkeiten installieren (oft nötig für CAD/PDF-Rendering mit matplotlib)
 RUN apt-get update && apt-get install -y \
     libfontconfig1 \
-    libgl1-mesa-glx \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Arbeitsverzeichnis im Container festlegen
