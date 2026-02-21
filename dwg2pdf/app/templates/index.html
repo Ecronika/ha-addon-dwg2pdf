@@ -149,23 +149,19 @@
                 container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>3/3: Lade Schriften und zeichne Plan...</p>";
                 await new Promise(resolve => setTimeout(resolve, 50));
 
-                // Wir speichern das Original-DXF für die Checkboxen zwischen
                 window.originalDxfEntities = [...dxf.entities];
                 window.currentDxfObject = dxf;
 
-                const loader = new THREE.FontLoader();
-                loader.load('static/fonts/helvetiker_regular.typeface.json', function (font) {
-                    window.currentFont = font;
-                    container.innerHTML = ""; // Text weg
+                container.innerHTML = ""; // Text weg
+                console.log("Initialisiere ThreeDxf Viewer...");
 
-                    console.log("Initialisiere ThreeDxf Viewer...");
-                    viewer = new window.ThreeDxf.Viewer(dxf, container, container.clientWidth, container.clientHeight, font);
+                // Pass local TTF font to Troika to prevent external CORS/Ingress issues
+                viewer = new window.ThreeDxf.Viewer(dxf, container, container.clientWidth, container.clientHeight, 'static/fonts/Roboto-Regular.ttf');
 
-                    // 4. Layer-Liste bauen
-                    buildLayerSidebar(dxf.tables.layer.layers);
-                    document.getElementById('btn-pdf').style.display = 'block';
-                    console.log("Fertig gerendert!");
-                });
+                // 4. Layer-Liste bauen
+                buildLayerSidebar(dxf.tables.layer.layers);
+                document.getElementById('btn-pdf').style.display = 'block';
+                console.log("Fertig gerendert!");
 
             } catch (error) {
                 console.error("Fehler beim Rendern:", error);
