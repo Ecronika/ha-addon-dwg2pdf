@@ -174,6 +174,9 @@
                 // 4. Layer-Liste bauen
                 buildLayerSidebar(dxf.tables.layer.layers);
                 document.getElementById('btn-pdf').style.display = 'block';
+
+                // 5. Ansicht passend skalieren
+                fitCameraToSelection(viewer);
                 console.log("Fertig gerendert!");
 
             } catch (error) {
@@ -186,6 +189,78 @@
                     "Die DXF ist evtl. zu groß, nutzt nicht unterstützte Features oder ist keine ASCII-DXF." +
                     "</p>";
             }
+        }
+
+        function fitCameraToSelection(viewer) {
+            if (!viewer || !viewer.scene || !viewer.camera || !viewer.controls) return;
+
+            const box = new THREE.Box3();
+            viewer.scene.updateMatrixWorld(true);
+
+            viewer.scene.traverse(child => {
+                if ((child.isMesh || child.isLine || child.isPoints) && child.visible) {
+                    // Check if parent hierarchy is also visible
+                    let isVisible = true;
+                    let obj = child;
+                    while (obj) {
+                        if (!obj.visible) {
+                            isVisible = false;
+                            break;
+                        }
+                        obj = obj.parent;
+                    }
+                    if (isVisible) {
+                        if (!child.geometry.boundingBox) {
+                            child.geometry.computeBoundingBox();
+                        }
+                        const childBox = child.geometry.boundingBox.clone();
+                        childBox.applyMatrix4(child.matrixWorld);
+                        box.union(childBox);
+                    }
+                }
+            });
+
+            if (box.isEmpty() || !isFinite(box.min.x)) return;
+
+            const width = box.max.x - box.min.x;
+            const height = box.max.y - box.min.y;
+            const centerX = box.min.x + width / 2;
+            const centerY = box.min.y + height / 2;
+
+            const container = document.getElementById('viewer-container');
+            let containerAspect = container.clientWidth / container.clientHeight;
+            if (isNaN(containerAspect) || containerAspect <= 0) containerAspect = 1;
+
+            let newWidth = width;
+            let newHeight = height;
+
+            if (width / height > containerAspect) {
+                newHeight = width / containerAspect;
+            } else {
+                newWidth = height * containerAspect;
+            }
+
+            // Add padding (1.05x) so it's not flush to the edges
+            newWidth *= 1.05;
+            newHeight *= 1.05;
+
+            // Make sure width/height are not zero
+            if (newWidth < 0.001 || newHeight < 0.001) {
+                newWidth = 10;
+                newHeight = 10 / containerAspect;
+            }
+
+            viewer.camera.left = -newWidth / 2;
+            viewer.camera.right = newWidth / 2;
+            viewer.camera.top = newHeight / 2;
+            viewer.camera.bottom = -newHeight / 2;
+            viewer.camera.position.x = centerX;
+            viewer.camera.position.y = centerY;
+            viewer.camera.updateProjectionMatrix();
+
+            viewer.controls.target.set(centerX, centerY, 0);
+            viewer.controls.update();
+            if (viewer.render) viewer.render();
         }
 
         function buildLayerSidebar(layers) {
@@ -216,8 +291,8 @@
                                 child.visible = isVisible;
                             }
                         });
-                        // Neu zeichnen
-                        if (viewer.render) viewer.render();
+                        // Neu zeichnen und Ansicht anpassen
+                        fitCameraToSelection(viewer);
                     }
                 });
 
