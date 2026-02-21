@@ -308,12 +308,26 @@
                 const div = document.createElement('div');
                 div.className = 'layer-item';
 
+                // DXF Layer Visibility prüfen (frozen / visible flags vom dxf-parser)
+                let isLayerVisible = true;
+                if (layerData.visible === false) isLayerVisible = false;
+                if (layerData.frozen === true) isLayerVisible = false;
+
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.className = 'layer-checkbox';
                 checkbox.value = layerName;
-                checkbox.checked = true; // Standardmäßig sind alle Layer an
+                checkbox.checked = isLayerVisible;
                 checkbox.id = 'layer-' + layerName;
+
+                // Initial den Three.js Objekten auch die Sichtbarkeit zuweisen
+                if (!isLayerVisible && viewer && viewer.scene) {
+                    viewer.scene.traverse(child => {
+                        if (child.userData && child.userData.layer === layerName) {
+                            child.visible = false;
+                        }
+                    });
+                }
 
                 // Live-Vorschau: Blendet Three.js Objekte anhand des Layer-Namens ein/aus
                 checkbox.addEventListener('change', (e) => {
