@@ -179,6 +179,11 @@
                 setTimeout(() => {
                     fitCameraToSelection(viewer);
                     console.log("Kamera an Geometrie angepasst!");
+
+                    // Force an additional render pass slightly later to ensure asynchronous TroikaText is drawn
+                    setTimeout(() => {
+                        if (viewer && viewer.render) viewer.render();
+                    }, 300);
                 }, 250);
 
                 console.log("Fertig gerendert!");
