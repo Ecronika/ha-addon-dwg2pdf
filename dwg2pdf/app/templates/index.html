@@ -175,8 +175,12 @@
                 buildLayerSidebar(dxf.tables.layer.layers);
                 document.getElementById('btn-pdf').style.display = 'block';
 
-                // 5. Ansicht passend skalieren
-                fitCameraToSelection(viewer);
+                // 5. Ansicht passend skalieren (mit leichtem Delay, da Text-Geometrien asynchron laden)
+                setTimeout(() => {
+                    fitCameraToSelection(viewer);
+                    console.log("Kamera an Geometrie angepasst!");
+                }, 250);
+
                 console.log("Fertig gerendert!");
 
             } catch (error) {
