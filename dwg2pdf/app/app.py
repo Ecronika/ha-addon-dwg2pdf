@@ -1,105 +1,139 @@
+"""
+DWG to PDF Home Assistant Add-on Backend
+A Flask application that handles DXF uploads and generates PDFs using ezdxf.
+"""
+
 import os
-import uuid
-import shutil
 import time
 import threading
 import io
+import uuid
 from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
 import ezdxf
 from ezdxf.addons.drawing import RenderContext, Frontend
+from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
+from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_pdf import FigureCanvasPdf
-from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
 
 app = Flask(__name__)
 
-# Temporäre Ordner für die Verarbeitung
 CONVERT_FOLDER = '/tmp/converted'
 os.makedirs(CONVERT_FOLDER, exist_ok=True)
 
-# Background cleanup thread
-def cleanup_old_files():
-    while True:
-        time.sleep(3600) # Check every hour
+
+def _delete_old_files(folder: str, max_age_seconds: int):
+    """Deletes files in the given folder that are older than max_age_seconds."""
+    try:
         now = time.time()
-        for folder in [CONVERT_FOLDER]:
-            try:
-                for filename in os.listdir(folder):
-                    file_path = os.path.join(folder, filename)
-                    if os.path.isfile(file_path):
-                        if now - os.path.getmtime(file_path) > 3600: # Older than 1 hour
-                            try:
-                                os.remove(file_path)
-                            except Exception as e:
-                                print(f"Error deleting file {file_path}: {e}")
-            except Exception as e:
-                print(f"Error accessing directory {folder}: {e}")
+        for filename in os.listdir(folder):
+            file_path = os.path.join(folder, filename)
+            if os.path.isfile(file_path):
+                if now - os.path.getmtime(file_path) > max_age_seconds:
+                    try:
+                        os.remove(file_path)
+                    except OSError as e:
+                        print(f"Error deleting file {file_path}: {e}")
+    except OSError as e:
+        print(f"Error accessing directory {folder}: {e}")
+
+
+def cleanup_old_files():
+    """Background thread that deletes old converted files."""
+    while True:
+        time.sleep(3600)
+        _delete_old_files(CONVERT_FOLDER, 3600)
+
 
 cleanup_thread = threading.Thread(target=cleanup_old_files, daemon=True)
 cleanup_thread.start()
 
+
 @app.route('/')
 def index():
+    """Renders the main frontend interface."""
     return render_template('index.html')
+
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
+    """Endpoint to upload a DXF file."""
     if 'file' not in request.files:
         return jsonify({'error': 'Keine Datei gesendet'}), 400
-    
+
     file = request.files['file']
-    if file.filename == '' or not file.filename.lower().endswith('.dxf'):
+    if not file or file.filename == '' or not file.filename.lower().endswith('.dxf'):
         return jsonify({'error': 'Bitte eine gültige DXF-Datei hochladen'}), 400
 
-    # 1. Unique ID für diesen Vorgang
     req_id = str(uuid.uuid4())
-    
-    # Da wir nun direkt DXF hochladen, überspringen wir den ODA-Konverter.
-    # Wir speichern die DXF direkt im CONVERT_FOLDER unter der eindeutigen ID.
     unique_dxf_filename = f"{req_id}.dxf"
     final_dxf_path = os.path.join(CONVERT_FOLDER, unique_dxf_filename)
-    
+
     try:
         file.save(final_dxf_path)
-    except Exception as e:
+    except OSError as e:
         return jsonify({'error': f'Fehler beim Speichern der Datei: {e}'}), 500
 
-    # 2. Dem Frontend mitteilen, dass die DXF bereit ist
-    return jsonify({'success': True, 'dxf_file': unique_dxf_filename, 'original_name': file.filename})
+    return jsonify({
+        'success': True,
+        'dxf_file': unique_dxf_filename,
+        'original_name': file.filename
+    })
+
 
 @app.route('/dxf/<filename>')
 def serve_dxf(filename):
-    # Sendet die DXF-Datei an den Browser-Viewer
+    """Serves uploaded DXF files to the frontend viewer."""
     return send_from_directory(CONVERT_FOLDER, filename)
-    
+
+
+def _render_pdf_to_bytes(doc, msp) -> io.BytesIO:
+    """Renders a DXF document's modelspace to a PDF using Matplotlib."""
+    fig = Figure(figsize=(11.69, 8.27), dpi=300)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_facecolor('white')
+
+    ctx = RenderContext(doc)
+    out = MatplotlibBackend(ax)
+
+    config = Configuration(
+        background_policy=BackgroundPolicy.WHITE,
+        color_policy=ColorPolicy.COLOR
+    )
+
+    Frontend(ctx, out, config=config).draw_layout(msp, finalize=True)
+
+    pdf_bytes = io.BytesIO()
+    canvas = FigureCanvasPdf(fig)
+    canvas.print_pdf(pdf_bytes)
+    return pdf_bytes
+
+
 @app.route('/generate_pdf', methods=['POST'])
 def generate_pdf():
+    """Generates a PDF from a specified DXF file after filtering layers."""
     data = request.get_json(silent=True) or {}
     dxf_filename = data.get('dxf_file')
     original_name = data.get('original_name', 'export')
-    active_layers = data.get('layers', []) # Array der gewählten Layer
-    
-    # Security: Path Traversal verhindern
-    if not dxf_filename or not dxf_filename.endswith('.dxf') or '/' in dxf_filename or '\\' in dxf_filename:
-        return jsonify({'error': 'Ungültiger Dateiname oder Format'}), 400
-        
+    active_layers = data.get('layers', [])
+
+    safe_filename = not dxf_filename or '/' in dxf_filename or '\\' in dxf_filename
+    if safe_filename or not dxf_filename.endswith('.dxf'):
+        return jsonify({'error': 'Ungültiger Dateiname'}), 400
+
     dxf_path = os.path.join(CONVERT_FOLDER, dxf_filename)
     if not os.path.exists(dxf_path):
         return jsonify({'error': 'DXF-Datei nicht gefunden oder abgelaufen'}), 404
 
     try:
-        # 4. DXF mit ezdxf öffnen und PDF rendern
         doc = ezdxf.readfile(dxf_path)
         msp = doc.modelspace()
-        
-        # Logik um nicht-gewählte Layer auszublenden/zu löschen
-        # Wir durchlaufen alle Elemente im Modelspace. 
-        # Falls ihr Layer nicht in active_layers ist, entfernen wir das Element.
+
         entities_to_delete = []
         for entity in msp:
             if entity.dxf.layer not in active_layers:
                 entities_to_delete.append(entity)
-                
+
         for entity in entities_to_delete:
             msp.delete_entity(entity)
 
@@ -107,36 +141,22 @@ def generate_pdf():
             if layer.dxf.name not in active_layers:
                 layer.off()
 
-        # Matplotlib (Objektorientiert, Thread-Safe!)
-        fig = Figure(figsize=(11.69, 8.27), dpi=300) 
-        ax = fig.add_axes([0, 0, 1, 1])
-        ax.set_facecolor('white')
-        
-        ctx = RenderContext(doc)
-        out = MatplotlibBackend(ax)
-        
-        # Konfiguration für weißen Hintergrund, aber Beibehaltung der Originalfarben
-        config = Configuration(
-            background_policy=BackgroundPolicy.WHITE,
-            color_policy=ColorPolicy.COLOR
-        )
-        
-        Frontend(ctx, out, config=config).draw_layout(msp, finalize=True)
-        
-        # PDF in Speicher (BytesIO) schreiben statt auf die Festplatte
-        pdf_bytes = io.BytesIO()
-        canvas = FigureCanvasPdf(fig)
-        canvas.print_pdf(pdf_bytes)
-        
+        pdf_bytes = _render_pdf_to_bytes(doc, msp)
         pdf_bytes.seek(0)
-        
         pdf_download_name = original_name.rsplit('.', 1)[0] + '.pdf'
 
-        # 5. PDF zum Download anbieten
-        return send_file(pdf_bytes, as_attachment=True, download_name=pdf_download_name, mimetype='application/pdf')
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return send_file(
+            pdf_bytes,
+            as_attachment=True,
+            download_name=pdf_download_name,
+            mimetype='application/pdf'
+        )
+
+    except OSError as e:
+        return jsonify({'error': f'Dateifehler: {e}'}), 500
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        return jsonify({'error': f'Unerwarteter Fehler: {e}'}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
