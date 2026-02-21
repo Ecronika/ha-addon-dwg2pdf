@@ -12,6 +12,7 @@ import uuid
 # pylint: disable=import-error
 from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
 import ezdxf
+from ezdxf import bbox
 from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
@@ -89,20 +90,22 @@ def serve_dxf(filename):
     return send_from_directory(CONVERT_FOLDER, filename)
 
 
-def _apply_dynamic_scale(fig, ax, doc, unit_multiplier, scale_denominator):
-    """Calculates Matplotlib axes dimensions mapped to exact real-world scale."""
-    x_min, x_max = ax.get_xlim()
-    y_min, y_max = ax.get_ylim()
+def _apply_dynamic_scale(fig, msp, doc, unit_multiplier, scale_denominator):
+    """Calculates Figure dimensions mapped from ezdxf bounds to real-world scale."""
+    extents = bbox.extents(msp, fast=True)
+    if not extents.has_data:
+        width_units, height_units = 10.0, 10.0
+    else:
+        width_units = extents.size.x
+        height_units = extents.size.y
 
     # $INSUNITS: 1=Inches, 4=mm (Standard), 5=cm, 6=Meters
     insunits = doc.header.get('$INSUNITS', 4)
     unit_to_mm = {1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0}.get(insunits, 1.0)
 
     # Calculate the paper size in inches based on selected scale and units
-    final_width_mm = ((abs(x_max - x_min) or 10.0) * unit_to_mm * unit_multiplier) \
-        / scale_denominator
-    final_height_mm = ((abs(y_max - y_min) or 10.0) * unit_to_mm * unit_multiplier) \
-        / scale_denominator
+    final_width_mm = (width_units * unit_to_mm * unit_multiplier) / scale_denominator
+    final_height_mm = (height_units * unit_to_mm * unit_multiplier) / scale_denominator
 
     w_in = max(1.0, min(final_width_mm / 25.4, 200.0))
     h_in = max(1.0, min(final_height_mm / 25.4, 200.0))
@@ -124,7 +127,7 @@ def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: fl
             color_policy=ColorPolicy.COLOR
         )
     ).draw_layout(msp, finalize=True)
-    _apply_dynamic_scale(fig, ax, doc, unit_multiplier, scale_denominator)
+    _apply_dynamic_scale(fig, msp, doc, unit_multiplier, scale_denominator)
 
     pdf_bytes = io.BytesIO()
     canvas = FigureCanvasPdf(fig)
