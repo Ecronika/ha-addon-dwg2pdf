@@ -99,8 +99,7 @@
             await new Promise(resolve => setTimeout(resolve, 50));
 
             try {
-                // Datei an Flask senden
-                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const response = await fetch('upload', { method: 'POST', body: formData });
                 const data = await response.json();
 
                 if (data.success) {
@@ -126,8 +125,7 @@
                 await new Promise(resolve => setTimeout(resolve, 50));
                 console.log("Hole DXF vom Server:", filename);
 
-                // 1. DXF-Datei vom Python-Server holen
-                const response = await fetch('/dxf/' + filename);
+                const response = await fetch('dxf/' + filename);
                 if (!response.ok) throw new Error("DXF konnte nicht geladen werden (Status " + response.status + ")");
 
                 const dxfText = await response.text();
@@ -214,7 +212,7 @@
             const checkboxes = document.querySelectorAll('.layer-checkbox:checked');
             const activeLayers = Array.from(checkboxes).map(cb => cb.value);
 
-            const response = await fetch('/generate_pdf', {
+            const response = await fetch('generate_pdf', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ dxf_file: currentDxfFile, original_name: currentOriginalName, layers: activeLayers })
