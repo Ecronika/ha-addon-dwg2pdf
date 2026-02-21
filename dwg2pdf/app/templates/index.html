@@ -218,8 +218,18 @@
                             child.geometry.computeBoundingBox();
                         }
                         const childBox = child.geometry.boundingBox.clone();
-                        // Prevent empty/infinity boxes from corrupting the master box union
-                        if (!childBox.isEmpty() && isFinite(childBox.min.x) && isFinite(childBox.max.x)) {
+
+                        // SKIP TEXT ENTITIES: Asynchronous TroikaText geometries or DXF MTEXTs with trailing spaces
+                        // often report infinite or massive bounding boxes, ruining the camera framing.
+                        let isText = false;
+                        if (child.text !== undefined || child.isText) isText = true;
+                        if (child.userData && child.userData.entity) {
+                            const type = child.userData.entity.type;
+                            if (type === 'TEXT' || type === 'MTEXT') isText = true;
+                        }
+
+                        // Prevent empty/infinity/text boxes from corrupting the master box union
+                        if (!isText && !childBox.isEmpty() && isFinite(childBox.min.x) && isFinite(childBox.max.x)) {
                             // Only include if it has a non-zero area (lines have volume, but rogue empty points don't)
                             if (Math.abs(childBox.max.x - childBox.min.x) > 0.0001 || Math.abs(childBox.max.y - childBox.min.y) > 0.0001) {
                                 childBox.applyMatrix4(child.matrixWorld);
