@@ -90,34 +90,48 @@ def serve_dxf(filename):
     return send_from_directory(CONVERT_FOLDER, filename)
 
 
-def _apply_dynamic_scale(fig, msp, doc, unit_multiplier, scale_denominator):
+def _calculate_dynamic_scale(msp, doc, unit_multiplier, scale_denominator):
     """Calculates Figure dimensions mapped from ezdxf bounds to real-world scale."""
     extents = bbox.extents(msp, fast=True)
     if not extents.has_data:
-        width_units, height_units = 10.0, 10.0
-    else:
-        width_units = extents.size.x
-        height_units = extents.size.y
+        return 10.0, 10.0, 0.0, 1.0, 0.0, 1.0
 
-    # $INSUNITS: 1=Inches, 4=mm (Standard), 5=cm, 6=Meters
-    insunits = doc.header.get('$INSUNITS', 4)
-    unit_to_mm = {1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0}.get(insunits, 1.0)
+    x_min, y_min = extents.extmin.x, extents.extmin.y
+    x_max, y_max = extents.extmax.x, extents.extmax.y
+    width_units = x_max - x_min
+    height_units = y_max - y_min
 
-    # Calculate the paper size in inches based on selected scale and units
-    final_width_mm = (width_units * unit_to_mm * unit_multiplier) / scale_denominator
-    final_height_mm = (height_units * unit_to_mm * unit_multiplier) / scale_denominator
-
-    w_in = max(1.0, min(final_width_mm / 25.4, 200.0))
-    h_in = max(1.0, min(final_height_mm / 25.4, 200.0))
-    fig.set_size_inches(w_in, h_in)
+    # $INSUNITS multiplier: 1=Inches, 4=mm (Standard), 5=cm, 6=Meters
+    return {
+        'w_in': max(1.0, min((width_units * {
+            1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0
+        }.get(doc.header.get('$INSUNITS', 4), 1.0) * unit_multiplier / scale_denominator) / 25.4,
+        200.0)),
+        'h_in': max(1.0, min((height_units * {
+            1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0
+        }.get(doc.header.get('$INSUNITS', 4), 1.0) * unit_multiplier / scale_denominator) / 25.4,
+        200.0)),
+        'x_min': x_min, 'x_max': x_max,
+        'y_min': y_min, 'y_max': y_max
+    }
 
 def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: float) -> io.BytesIO:
     """Renders a DXF document's modelspace to a PDF using Matplotlib with exact scale."""
-    fig = Figure(dpi=300)
+    # 1. Calculate the exact physical bounds required before doing ANY drawing
+    #    This ensures Matplotlib's aspect ratio matches the DXF and creates zero padding.
+    bounds = _calculate_dynamic_scale(msp, doc, unit_multiplier, scale_denominator)
 
-    # Axe spans the entire figure without margins to perfectly preserve scale
+    fig = Figure(figsize=(bounds['w_in'], bounds['h_in']), dpi=300)
+
+    # 2. Add an axis that exactly fills the figure (no white borders mapped by plt.margins)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_facecolor('white')
+
+    # 3. Force the axes visually to the DXF limits so ezdxf.draw_layout doesn't
+    #    create massive grey borders stretching outside the drawing
+    ax.set_xlim(bounds['x_min'], bounds['x_max'])
+    ax.set_ylim(bounds['y_min'], bounds['y_max'])
+    ax.margins(0)
 
     Frontend(
         RenderContext(doc),
@@ -127,7 +141,11 @@ def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: fl
             color_policy=ColorPolicy.COLOR
         )
     ).draw_layout(msp, finalize=True)
-    _apply_dynamic_scale(fig, msp, doc, unit_multiplier, scale_denominator)
+
+    # Frontend layout might override data limits despite forcing them.
+    # Force them strictly again to absolutely crop any generated whitespace.
+    ax.set_xlim(bounds['x_min'], bounds['x_max'])
+    ax.set_ylim(bounds['y_min'], bounds['y_max'])
 
     pdf_bytes = io.BytesIO()
     canvas = FigureCanvasPdf(fig)
