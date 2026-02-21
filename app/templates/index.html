@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DWG zu PDF Konverter</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f9; }
+        .container { display: flex; gap: 20px; margin-top: 20px; }
+        #viewer-container { flex: 3; height: 600px; background: #fff; border: 1px solid #ccc; }
+        #sidebar { flex: 1; background: #fff; padding: 15px; border: 1px solid #ccc; max-height: 600px; overflow-y: auto; }
+        .layer-item { margin-bottom: 8px; }
+        button { padding: 10px 15px; background: #03a9f4; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0288d1; }
+    </style>
+</head>
+<body>
+
+    <h1>DWG zu PDF Konverter</h1>
+    
+    <div>
+        <input type="file" id="dwg-upload" accept=".dwg">
+        <button onclick="uploadFile()">1. DWG Hochladen & Konvertieren</button>
+    </div>
+
+    <div class="container">
+        <div id="viewer-container">
+            <p style="text-align:center; margin-top: 250px; color: #888;">Viewer-Vorschau (Wartet auf Datei...)</p>
+        </div>
+        
+        <div id="sidebar">
+            <h3>Ebenen (Layers)</h3>
+            <div id="layer-list">
+                <p>Noch keine Ebenen geladen.</p>
+            </div>
+            <hr>
+            <button onclick="requestPDF()" id="btn-pdf" style="display:none; width: 100%;">2. PDF Erstellen</button>
+        </div>
+    </div>
+
+    <script>
+        let currentDxfFile = "";
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('dwg-upload');
+            if (fileInput.files.length === 0) return alert("Bitte Datei wählen.");
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            // Datei an Flask senden
+            const response = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await response.json();
+
+            if (data.success) {
+                currentDxfFile = data.dxf_file;
+                alert("Konvertierung erfolgreich! Lade Vorschau...");
+                // TODO: Hier würde nun die JS-Bibliothek 'dxf-viewer' initialisiert 
+                // und die Layer-Liste ausgelesen werden.
+                document.getElementById('btn-pdf').style.display = 'block';
+            } else {
+                alert("Fehler: " + data.error);
+            }
+        }
+
+        async function requestPDF() {
+            // Dummy: Sammelt alle aktiven Checkboxen aus der Sidebar
+            const checkboxes = document.querySelectorAll('.layer-checkbox:checked');
+            const activeLayers = Array.from(checkboxes).map(cb => cb.value);
+
+            const response = await fetch('/generate_pdf', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dxf_file: currentDxfFile, layers: activeLayers })
+            });
+
+            if (response.ok) {
+                // PDF Download auslösen
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = currentDxfFile.replace('.dxf', '.pdf');
+                document.body.appendChild(a);
+                a.click();
+            } else {
+                alert("Fehler bei der PDF-Erstellung.");
+            }
+        }
+    </script>
+</body>
+</html>
