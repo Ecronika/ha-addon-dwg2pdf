@@ -12,7 +12,6 @@ import uuid
 # pylint: disable=import-error
 from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
 import ezdxf
-from ezdxf import bbox
 from ezdxf.addons.drawing import RenderContext, Frontend
 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
@@ -90,48 +89,13 @@ def serve_dxf(filename):
     return send_from_directory(CONVERT_FOLDER, filename)
 
 
-def _calculate_dynamic_scale(msp, doc, unit_multiplier, scale_denominator):
-    """Calculates Figure dimensions mapped from ezdxf bounds to real-world scale."""
-    extents = bbox.extents(msp, fast=True)
-    if not extents.has_data:
-        return 10.0, 10.0, 0.0, 1.0, 0.0, 1.0
-
-    x_min, y_min = extents.extmin.x, extents.extmin.y
-    x_max, y_max = extents.extmax.x, extents.extmax.y
-    width_units = x_max - x_min
-    height_units = y_max - y_min
-
-    # $INSUNITS multiplier: 1=Inches, 4=mm (Standard), 5=cm, 6=Meters
-    return {
-        'w_in': max(1.0, min((width_units * {
-            1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0
-        }.get(doc.header.get('$INSUNITS', 4), 1.0) * unit_multiplier / scale_denominator) / 25.4,
-        200.0)),
-        'h_in': max(1.0, min((height_units * {
-            1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0
-        }.get(doc.header.get('$INSUNITS', 4), 1.0) * unit_multiplier / scale_denominator) / 25.4,
-        200.0)),
-        'x_min': x_min, 'x_max': x_max,
-        'y_min': y_min, 'y_max': y_max
-    }
-
 def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: float) -> io.BytesIO:
     """Renders a DXF document's modelspace to a PDF using Matplotlib with exact scale."""
-    # 1. Calculate the exact physical bounds required before doing ANY drawing
-    #    This ensures Matplotlib's aspect ratio matches the DXF and creates zero padding.
-    bounds = _calculate_dynamic_scale(msp, doc, unit_multiplier, scale_denominator)
+    fig = Figure(figsize=(10, 10), dpi=300)
 
-    fig = Figure(figsize=(bounds['w_in'], bounds['h_in']), dpi=300)
-
-    # 2. Add an axis that exactly fills the figure (no white borders mapped by plt.margins)
+    # 1. Add an axis that exactly fills the figure (no white borders mapped by plt.margins)
     ax = fig.add_axes([0, 0, 1, 1])
     ax.set_facecolor('white')
-
-    # 3. Force the axes visually to the DXF limits so ezdxf.draw_layout doesn't
-    #    create massive grey borders stretching outside the drawing
-    ax.set_xlim(bounds['x_min'], bounds['x_max'])
-    ax.set_ylim(bounds['y_min'], bounds['y_max'])
-    ax.margins(0)
 
     Frontend(
         RenderContext(doc),
@@ -142,10 +106,24 @@ def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: fl
         )
     ).draw_layout(msp, finalize=True)
 
-    # Frontend layout might override data limits despite forcing them.
-    # Force them strictly again to absolutely crop any generated whitespace.
-    ax.set_xlim(bounds['x_min'], bounds['x_max'])
-    ax.set_ylim(bounds['y_min'], bounds['y_max'])
+    # 2. Extract strictly constrained data dimensions after graphics engine evaluated visible layers
+    x_min, y_min, x_max, y_max = ax.dataLim.extents
+    if x_min == float('inf') or x_min == x_max:
+        x_min, x_max, y_min, y_max = 0.0, 10.0, 0.0, 10.0
+
+    # 3. Compute requested physical page size exactly tracking drawn data extent aspect ratios
+    # $INSUNITS multiplier: 1=Inches, 4=mm (Standard), 5=cm, 6=Meters
+    w_mm = (x_max - x_min) * {1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0}.get(
+        doc.header.get('$INSUNITS', 4), 1.0) * unit_multiplier / scale_denominator
+    h_mm = (y_max - y_min) * {1: 25.4, 2: 304.8, 4: 1.0, 5: 10.0, 6: 1000.0}.get(
+        doc.header.get('$INSUNITS', 4), 1.0) * unit_multiplier / scale_denominator
+
+    # 4. Apply calculated figure constraints strictly bounding the graphic
+    fig.set_size_inches(max(1.0, min(w_mm / 25.4, 200.0)), max(1.0, min(h_mm / 25.4, 200.0)))
+
+    # Force the axes strictly again to eliminate Matplotlib's layout padding overrides
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
 
     pdf_bytes = io.BytesIO()
     canvas = FigureCanvasPdf(fig)
