@@ -53,6 +53,13 @@ def upload_file():
     # 3. Dem Frontend mitteilen, dass die DXF bereit ist
     return jsonify({'success': True, 'dxf_file': dxf_filename})
 
+from flask import send_from_directory # Oben bei den anderen Flask-Imports hinzufügen
+
+@app.route('/dxf/<filename>')
+def serve_dxf(filename):
+    # Sendet die DXF-Datei an den Browser-Viewer
+    return send_from_directory(CONVERT_FOLDER, filename)
+    
 @app.route('/generate_pdf', methods=['POST'])
 def generate_pdf():
     data = request.json
