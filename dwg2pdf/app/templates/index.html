@@ -137,7 +137,10 @@
                 <label for="pdf-scale" style="display:inline-block; width: 80px;">Maßstab 1:</label>
                 <input type="number" id="pdf-scale" value="100" style="width: 132px;" min="1">
             </div>
-            <button onclick="requestPDF()" id="btn-pdf" style="display:none; width: 100%;">2. PDF Erstellen</button>
+            <button onclick="requestPDF()" id="btn-pdf" style="display:none; width: 100%; margin-bottom: 10px;">2. PDF
+                Erstellen</button>
+            <button onclick="downloadDXF()" id="btn-dxf" style="display:none; width: 100%; background: #4CAF50;">3. DXF
+                Herunterladen</button>
         </div>
     </div>
 
@@ -260,6 +263,7 @@
                 // 4. Layer-Liste bauen
                 buildLayerSidebar(dxf.tables.layer.layers);
                 document.getElementById('btn-pdf').style.display = 'block';
+                document.getElementById('btn-dxf').style.display = 'block';
 
                 // 5. Ansicht passend skalieren (mit leichtem Delay, da Text-Geometrien asynchron laden)
                 setTimeout(() => {
@@ -511,6 +515,23 @@
                 btn.innerText = originalText;
                 btn.disabled = false;
             }
+        }
+
+        function downloadDXF() {
+            if (!currentDxfFile) return;
+            const a = document.createElement('a');
+            a.href = 'dxf/' + currentDxfFile;
+
+            // Generate a good download name
+            let downloadName = currentOriginalName;
+            if (downloadName.toLowerCase().endsWith('.dwg')) {
+                downloadName = downloadName.substring(0, downloadName.length - 4) + '.dxf';
+            }
+            a.download = downloadName;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         }
     </script>
 </body>
