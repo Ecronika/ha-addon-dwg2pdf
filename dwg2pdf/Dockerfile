@@ -35,7 +35,8 @@ FROM python:3.11-alpine
 RUN apk add --no-cache \
     fontconfig \
     pcre2 \
-    libstdc++
+    libstdc++ \
+    ttf-dejavu
 
 # 2. Die vorkompilierten Binärdateien aus der "Builder"-Stage herüberkopieren
 COPY --from=builder /usr/local/bin/dwg* /usr/local/bin/
