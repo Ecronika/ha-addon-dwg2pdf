@@ -59,7 +59,7 @@ RUN apk add --no-cache --virtual .build-deps g++ jpeg-dev zlib-dev freetype-dev 
 COPY . .
 
 # 7. Port öffnen und Skriptberechtigung setzen
-EXPOSE 8123
+EXPOSE 8062
 RUN chmod a+x /usr/src/addon/run.sh
 
 CMD [ "/usr/src/addon/run.sh" ]

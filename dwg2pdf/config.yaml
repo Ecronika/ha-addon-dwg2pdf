@@ -8,7 +8,7 @@ arch:
   - aarch64
 boot: auto
 ingress: true
-ingress_port: 5000
+ingress_port: 8062
 ports:
-  5000/tcp: 5000
-webui: "http://[HOST]:[PORT:5000]"
+  8062/tcp: 8062
+webui: "http://[HOST]:[PORT:8062]"
