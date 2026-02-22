@@ -50,8 +50,8 @@ WORKDIR /usr/src/addon
 # 5. Python Pakete installieren (Matplotlib, Flask, ezdxf)
 # Alpine benötigt oft C-Compiler für matplotlib, wenn es keine passenden Wheels gibt,
 # wir versuchen es durch vorkompilierte Wheels zu optimieren oder installieren die Basis-Tools kurz
+COPY requirements.txt ./
 RUN apk add --no-cache --virtual .build-deps g++ jpeg-dev zlib-dev freetype-dev && \
-    COPY requirements.txt ./ && \
     pip install --no-cache-dir -r requirements.txt && \
     apk del .build-deps
 
