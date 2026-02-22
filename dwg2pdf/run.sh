@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 echo "Starte DWG to PDF Converter Add-on..."
 
 # Wechsle in den Ordner der Flask-App
