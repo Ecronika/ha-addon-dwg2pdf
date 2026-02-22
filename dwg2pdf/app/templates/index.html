@@ -20,7 +20,7 @@
 
         #viewer-container {
             flex: 3;
-            height: 600px;
+            height: calc(100vh - 150px);
             background: #fff;
             border: 1px solid #ccc;
         }
@@ -30,8 +30,54 @@
             background: #fff;
             padding: 15px;
             border: 1px solid #ccc;
-            max-height: 600px;
+            max-height: calc(100vh - 150px);
             overflow-y: auto;
+        }
+
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .toast {
+            background: #f44336;
+            color: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            opacity: 1;
+            transition: opacity 0.5s;
+        }
+
+        .toast.success {
+            background: #4CAF50;
+        }
+
+        .toast.info {
+            background: #2196F3;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #03a9f4;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .layer-item {
@@ -54,6 +100,7 @@
 
 <body>
 
+    <div id="toast-container"></div>
     <h1>DXF zu PDF Konverter</h1>
 
     <div>
@@ -61,7 +108,9 @@
         <button onclick="uploadFile()">1. DWG Laden & Vorschau</button>
         <br>
         <small style="color:#666; margin-top:5px; display:block;">ℹ️ DWG & DXF Uploads unterstützt. Es wird automatisch
-            eine ASCII DXF konvertiert.</small>
+            eine ASCII DXF konvertiert.<br>
+            ⚠️ <b>Hinweis:</b> Proxy-Objekte aus CAD-Aufsätzen (Architektur/Civil3D) werden in grundlegende
+            Linien/Blöcke abstrahiert und verlieren ihre native Intelligenz.</small>
     </div>
 
     <div class="container">
@@ -101,15 +150,27 @@
         let currentOriginalName = "";
         let viewer = null;
 
+        function showToast(message, type = 'error') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast ' + type;
+            toast.innerText = message;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 500);
+            }, 5000);
+        }
+
         async function uploadFile() {
             const fileInput = document.getElementById('dwg-upload');
-            if (fileInput.files.length === 0) return alert("Bitte Datei wählen.");
+            if (fileInput.files.length === 0) return showToast("Bitte Datei wählen.");
 
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
 
             const container = document.getElementById('viewer-container');
-            container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>Lade & Konvertiere DWG... Bitte warten.</p>";
+            container.innerHTML = "<div style='text-align:center; margin-top: 200px;'><div class='spinner'></div><p>Lade & Konvertiere DWG... Bitte warten.</p></div>";
 
             // Wichtig: Dem Browser Zeit geben, die Upload-Nachricht zu zeichnen
             await new Promise(resolve => setTimeout(resolve, 50));
@@ -121,20 +182,22 @@
                 if (data.success) {
                     currentDxfFile = data.dxf_file;
                     currentOriginalName = data.original_name;
+                    showToast("Upload erfolgreich", "success");
                     await loadAndRenderDXF(currentDxfFile);
                 } else {
-                    alert("Fehler: " + data.error);
-                    container.innerHTML = "<p>Fehler beim Upload: " + data.error + "</p>";
+                    showToast("Fehler: " + data.error);
+                    container.innerHTML = "<p style='text-align:center; margin-top:200px;'>Fehler beim Upload: " + data.error + "</p>";
                 }
             } catch (err) {
                 console.error("Upload Error:", err);
-                container.innerHTML = "<p style='color:red;'>Verbindungsfehler beim Upload.</p>";
+                showToast("Verbindungsfehler beim Upload.");
+                container.innerHTML = "<p style='text-align:center; margin-top:200px; color:red;'>Verbindungsfehler beim Upload.</p>";
             }
         }
 
         async function loadAndRenderDXF(filename) {
             const container = document.getElementById('viewer-container');
-            container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>1/3: Lade DXF-Datei vom Server herunter...</p>";
+            container.innerHTML = "<div style='text-align:center; margin-top: 200px;'><div class='spinner'></div><p>1/3: Lade DXF-Datei vom Server herunter...</p></div>";
 
             try {
                 // Kurz warten, damit "1/3" gezeichnet wird
@@ -148,18 +211,41 @@
                 console.log("DXF geladen, Größe:", dxfText.length, "Bytes");
 
                 // 2. DXF parsen
-                container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>2/3: Analysiere DXF-Struktur (Browser rechnet, bitte warten)...</p>";
+                container.innerHTML = "<div style='text-align:center; margin-top: 200px;'><div class='spinner'></div><p>2/3: Analysiere DXF-Struktur (Browser rechnet, bitte warten)...</p></div>";
 
-                // Wir geben dem Browser einen winzigen Moment zum Zeichnen des obigen Textes
-                await new Promise(resolve => setTimeout(resolve, 50));
+                console.log("Starte DXF Parser via WebWorker...");
+                const workerCode = `
+                    importScripts('https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.js');
+                    self.onmessage = function(e) {
+                        try {
+                            const parser = new DxfParser();
+                            const dxf = parser.parseSync(e.data);
+                            postMessage({ success: true, dxf: dxf });
+                        } catch(err) {
+                            postMessage({ success: false, error: err.message || err });
+                        }
+                    };
+                `;
+                const blob = new Blob([workerCode], { type: 'application/javascript' });
+                const worker = new Worker(URL.createObjectURL(blob));
 
-                console.log("Starte DXF Parser...");
-                const parser = new window.DxfParser();
-                const dxf = parser.parseSync(dxfText);
+                const dxf = await new Promise((resolve, reject) => {
+                    worker.onmessage = e => {
+                        if (e.data.success) resolve(e.data.dxf);
+                        else reject(new Error(e.data.error));
+                        worker.terminate();
+                    };
+                    worker.onerror = err => {
+                        reject(err);
+                        worker.terminate();
+                    };
+                    worker.postMessage(dxfText);
+                });
+
                 console.log("DXF geparst:", dxf);
 
                 // 3. Font laden und Plan rendern
-                container.innerHTML = "<p style='text-align:center; margin-top: 250px;'>3/3: Lade Schriften und zeichne Plan...</p>";
+                container.innerHTML = "<div style='text-align:center; margin-top: 200px;'><div class='spinner'></div><p>3/3: Lade Schriften und zeichne Plan...</p></div>";
                 await new Promise(resolve => setTimeout(resolve, 50));
 
                 window.originalDxfEntities = [...dxf.entities];
@@ -236,7 +322,10 @@
                         // Prevent empty/infinity/text boxes from corrupting the master box union
                         if (!isText && !childBox.isEmpty() && isFinite(childBox.min.x) && isFinite(childBox.max.x)) {
                             // Only include if it has a non-zero area (lines have volume, but rogue empty points don't)
-                            if (Math.abs(childBox.max.x - childBox.min.x) > 0.0001 || Math.abs(childBox.max.y - childBox.min.y) > 0.0001) {
+                            // Also ignore absurdly large bounding boxes that represent parsing anomalies
+                            const childW = childBox.max.x - childBox.min.x;
+                            const childH = childBox.max.y - childBox.min.y;
+                            if ((childW > 0.0001 || childH > 0.0001) && childW < 10000000 && childH < 10000000) {
                                 childBox.applyMatrix4(child.matrixWorld);
                                 box.union(childBox);
                             }
@@ -281,6 +370,10 @@
                 newHeight = 10 / containerAspect;
             }
 
+            // Fix Z-Fighting / Precision issues by pulling the whole scene to the origin
+            viewer.scene.position.set(-centerX, -centerY, 0);
+            viewer.scene.updateMatrixWorld(true);
+
             viewer.camera.left = -newWidth / 2;
             viewer.camera.right = newWidth / 2;
             viewer.camera.top = newHeight / 2;
@@ -290,15 +383,15 @@
             // we must ensure the zoom is exactly 1 before updating the projection.
             viewer.camera.zoom = 1;
 
-            viewer.camera.position.x = centerX;
-            viewer.camera.position.y = centerY;
+            viewer.camera.position.x = 0;
+            viewer.camera.position.y = 0;
             viewer.camera.updateProjectionMatrix();
 
             // Also reset controls internal zoom state if needed (which orbits do)
             if (viewer.controls.reset) viewer.controls.reset();
 
-            viewer.controls.target.set(centerX, centerY, 0);
-            viewer.camera.position.set(centerX, centerY, 10);
+            viewer.controls.target.set(0, 0, 0);
+            viewer.camera.position.set(0, 0, 10);
             viewer.controls.update();
 
             if (viewer.render) viewer.render();
@@ -406,14 +499,14 @@
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
+                    showToast("PDF erfolgreich heruntergeladen!", "success");
                 } else {
                     let errorMsg = response.statusText;
                     try { const errData = await response.json(); errorMsg = errData.error || errorMsg; } catch (e) { }
-                    alert("Fehler bei der PDF-Erstellung: " + errorMsg);
+                    showToast("Fehler bei der PDF-Erstellung: " + errorMsg);
                 }
             } catch (e) {
-                alert("Netzwerkfehler oder Server nicht erreichbar.");
+                showToast("Netzwerkfehler oder Server nicht erreichbar.");
             } finally {
                 btn.innerText = originalText;
                 btn.disabled = false;

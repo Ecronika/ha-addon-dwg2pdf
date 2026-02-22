@@ -6,22 +6,18 @@ Ein benutzerdefiniertes Home Assistant Add-on mit einem Flask-basierten Webinter
 
 Da DWG ein proprietäres Format ist, arbeitet dieses Add-on in einer mehrstufigen Pipeline:
 1. **Upload:** DWG-Datei wird über die Web-UI hochgeladen.
-2. **Konvertierung:** Der ODA File Converter wandelt die DWG im Hintergrund in eine DXF-Datei um.
-3. **Vorschau & Layer:** Die DXF wird im Browser gerendert, unerwünschte Layer können abgewählt werden.
+2. **Konvertierung:** Das Open-Source Tool **GNU LibreDWG** wandelt die DWG im Hintergrund in eine DXF-Datei um.
+3. **Vorschau & Layer:** Die DXF wird lokal im Browser gerendert, unerwünschte Layer können abgewählt werden.
 4. **Export:** Das Python-Backend (`ezdxf`) generiert aus der bereinigten DXF ein fertiges PDF.
 
-## ⚠️ Wichtige Voraussetzungen (Vor dem Build!)
+## 🚀 Technologie-Basis
 
-Aus lizenzrechtlichen Gründen ist der **ODA File Converter** nicht in diesem Repository enthalten. 
-Bevor Sie das Docker-Image / Add-on bauen können, müssen Sie:
-1. Den aktuellen ODA File Converter für Linux (.deb Paket) von der [Open Design Alliance](https://www.opendesign.com/guestfiles/oda_file_converter) herunterladen.
-2. Die `.deb` Datei in das Hauptverzeichnis dieses Repositories legen. 
-*(Hinweis: Die `.gitignore` ist so konfiguriert, dass diese Datei nicht versehentlich mit hochgeladen wird).*
+Dieses Add-on nutzt **GNU LibreDWG** zur Umwandlung. Die lästige Installation externer proprietärer Tools (wie dem ODA File Converter) entfällt komplett, da LibreDWG tief ins Add-on-Image integriert ist.
 
 ## Ordnerstruktur
 
 - `/app`: Enthält die Flask-Anwendung (`app.py`), HTML-Templates und statische Dateien (JS/CSS).
-- `Dockerfile`: Baut das Image inkl. Python-Abhängigkeiten und ODA-Converter.
+- `Dockerfile`: Baut das Image inkl. Python-Abhängigkeiten und kopiert LibreDWG aus einem Basis-Image.
 - `config.yaml`: Die Home Assistant Add-on Konfigurationsdatei.
 - `run.sh`: Der Startpunkt für den Gunicorn-Webserver.
 

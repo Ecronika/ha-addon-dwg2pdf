@@ -1,6 +1,9 @@
 #!/bin/sh
 echo "Starte DWG to PDF Converter Add-on..."
 
+# Starte den Cron Daemon im Hintergrund für Aufräumarbeiten
+crond -b -l 8
+
 # Wechsle in den Ordner der Flask-App
 cd /usr/src/addon/app
 
