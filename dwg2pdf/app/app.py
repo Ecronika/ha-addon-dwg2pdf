@@ -1,5 +1,6 @@
 """
-DWG to PDF Home Assistant Add-on Backend
+DWG to PDF Home Assistant Add-on Backend.
+
 A Flask application that handles DXF uploads and generates PDFs using ezdxf.
 """
 
@@ -11,18 +12,19 @@ import uuid
 import subprocess
 import logging
 
+from matplotlib.backends.backend_pdf import FigureCanvasPdf
+from matplotlib.figure import Figure
+from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
+from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
+from ezdxf.addons.drawing import RenderContext, Frontend
+import ezdxf
+from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
+
 # Logger konfigurieren
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # pylint: disable=import-error
-from flask import Flask, render_template, request, send_file, jsonify, send_from_directory
-import ezdxf
-from ezdxf.addons.drawing import RenderContext, Frontend
-from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
-from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_pdf import FigureCanvasPdf
 
 app = Flask(__name__)
 
@@ -33,7 +35,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
 def _delete_old_files(folder: str, max_age_seconds: int):
-    """Deletes files in the given folder that are older than max_age_seconds."""
+    """Delete files in the given folder that are older than max_age_seconds."""
     try:
         now = time.time()
         for filename in os.listdir(folder):
@@ -49,7 +51,7 @@ def _delete_old_files(folder: str, max_age_seconds: int):
 
 
 def cleanup_old_files():
-    """Background thread that deletes old converted files."""
+    """Run a background thread that deletes old converted files."""
     while True:
         time.sleep(3600)
         _delete_old_files(CONVERT_FOLDER, 3600)
@@ -61,56 +63,68 @@ cleanup_thread.start()
 
 @app.route('/')
 def index():
-    """Renders the main frontend interface."""
+    """Render the main frontend interface."""
     return render_template('index.html')
+
+
+def _handle_dwg_conversion(temp_dwg_path: str, final_dxf_path: str):
+    """Convert DWG to DXF via subprocess."""
+    logger.info("Starte Konvertierung mit dwg2dxf: %s", temp_dwg_path)
+    command = ["dwg2dxf", "-m", "-o", final_dxf_path, temp_dwg_path]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    if result.returncode != 0:
+        if not os.path.exists(final_dxf_path) or os.path.getsize(final_dxf_path) == 0:
+            logger.error("dwg2dxf fehlgeschlagen! Code: %d\nSTDERR: %s", result.returncode, result.stderr)
+            return False
+
+        logger.warning(
+            "dwg2dxf warnte (Code %d), aber DXF existiert.\nSTDERR: %s",
+            result.returncode,
+            result.stderr)
+
+    logger.info("DWG erfolgreich nach %s konvertiert.", final_dxf_path)
+    return True
+
+
+def _handle_upload_saving(filename: str, req_id: str, file_obj) -> tuple:
+    """Save an uploaded file based on its extension."""
+    final_dxf_path = os.path.join(CONVERT_FOLDER, f"{req_id}.dxf")
+
+    if filename.endswith('.dxf'):
+        file_obj.save(final_dxf_path)
+    elif filename.endswith('.dwg'):
+        temp_dwg_path = os.path.join(UPLOAD_FOLDER, f"{req_id}.dwg")
+        file_obj.save(temp_dwg_path)
+        if not _handle_dwg_conversion(temp_dwg_path, final_dxf_path):
+            return False, 'DWG Konvertierung fehlgeschlagen.'
+
+    return True, None
 
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    """Endpoint to upload a DWG or DXF file."""
+    """Process an endpoint to upload a DWG or DXF file."""
     if 'file' not in request.files:
         return jsonify({'error': 'Keine Datei gesendet'}), 400
 
     file = request.files['file']
     filename = file.filename.lower()
-    
-    if not file or filename == '' or not (filename.endswith('.dwg') or filename.endswith('.dxf')):
+
+    if not file or not filename or not (filename.endswith('.dwg') or filename.endswith('.dxf')):
         return jsonify({'error': 'Bitte eine gültige DWG oder DXF Datei hochladen'}), 400
 
     req_id = str(uuid.uuid4())
     unique_dxf_filename = f"{req_id}.dxf"
-    final_dxf_path = os.path.join(CONVERT_FOLDER, unique_dxf_filename)
 
     try:
-        if filename.endswith('.dxf'):
-            file.save(final_dxf_path)
-            
-        elif filename.endswith('.dwg'):
-            unique_dwg_filename = f"{req_id}.dwg"
-            temp_dwg_path = os.path.join(UPLOAD_FOLDER, unique_dwg_filename)
-            file.save(temp_dwg_path)
-            
-            logger.info("Starte Konvertierung mit dwg2dxf: %s", temp_dwg_path)
-            
-            # dwg2dxf flags: -m (minimal, gut für parse-compat), -o (output file)
-            command = ["dwg2dxf", "-m", "-o", final_dxf_path, temp_dwg_path]
-            
-            # Führe Befehl aus. LibreDWG schreibt oft Warnungen in STDERR, selbst wenn Erfolg,
-            # daher filtern wir nach dem Exit-Code oder Existenz der Ausgabedatei.
-            result = subprocess.run(command, capture_output=True, text=True, check=False)
-            
-            if result.returncode != 0:
-                if not os.path.exists(final_dxf_path) or os.path.getsize(final_dxf_path) == 0:
-                    logger.error("dwg2dxf fehlgeschlagen! Code: %d\nSTDERR: %s", result.returncode, result.stderr)
-                    return jsonify({'error': 'DWG Konvertierung fehlgeschlagen.'}), 500
-                else:
-                    logger.warning("dwg2dxf warnte (Code %d), aber DXF existiert.\nSTDERR: %s", result.returncode, result.stderr)
-            
-            logger.info("DWG erfolgreich nach %s konvertiert.", final_dxf_path)
+        success, err_msg = _handle_upload_saving(filename, req_id, file)
+        if not success:
+            return jsonify({'error': err_msg}), 500
 
     except OSError as e:
         return jsonify({'error': f'Fehler beim Speichern der Datei: {e}'}), 500
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         return jsonify({'error': f'Unerwarteter Fehler bei der Verarbeitung: {e}'}), 500
 
     return jsonify({
@@ -122,12 +136,12 @@ def upload_file():
 
 @app.route('/dxf/<filename>')
 def serve_dxf(filename):
-    """Serves uploaded DXF files to the frontend viewer."""
+    """Serve uploaded DXF files to the frontend viewer."""
     return send_from_directory(CONVERT_FOLDER, filename)
 
 
 def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: float) -> io.BytesIO:
-    """Renders a DXF document's modelspace to a PDF using Matplotlib with exact scale."""
+    """Render a DXF document's modelspace to a PDF using Matplotlib with exact scale."""
     fig = Figure(figsize=(10, 10), dpi=300)
 
     # 1. Add an axis that exactly fills the figure (no white borders mapped by plt.margins)
@@ -169,7 +183,7 @@ def _render_pdf_to_bytes(doc, msp, unit_multiplier: float, scale_denominator: fl
 
 
 def _parse_pdf_request(data: dict):
-    """Extracts and validates parameters for PDF generation."""
+    """Extract and validate parameters for PDF generation."""
     active_layers = data.get('layers', [])
     try:
         unit = float(data.get('unit', 10))
@@ -186,10 +200,11 @@ def _parse_pdf_request(data: dict):
     is_inv = is_inv or not dxf_file.endswith('.dxf')
     return active_layers, unit, scale, dxf_file, is_inv
 
+
 @app.route('/generate_pdf', methods=['POST'])
 def generate_pdf():
     # pylint: disable=too-many-locals
-    """Generates a PDF from a specified DXF file after filtering layers."""
+    """Generate a PDF from a specified DXF file after filtering layers."""
     data = request.get_json(silent=True) or {}
     layers, unit, scale, dxf_file, is_invalid = _parse_pdf_request(data)
 
