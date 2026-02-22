@@ -1,5 +1,33 @@
 # ==========================================================
-# Runtime (Leichtgewichtiges Ziel-Image)
+# STAGE 1: GCC Builder (Kompiliert GNU LibreDWG für ARM/x86)
+# ==========================================================
+FROM python:3.11-alpine AS builder
+
+# 1. Alle nötigen C-Compiler und Build-Tools für Alpine Linux installieren
+RUN apk add --no-cache \
+    build-base \
+    autoconf \
+    automake \
+    libtool \
+    python3-dev \
+    swig \
+    git \
+    texinfo \
+    pcre2-dev
+
+# 2. GNU LibreDWG Quellcode direkt vom offiziellen Git Repository laden
+WORKDIR /build
+RUN git clone https://git.savannah.gnu.org/git/libredwg.git .
+
+# 3. Das Kommandozeilen-Tool (dwg2dxf) und die Bibliothek aus dem C-Quellcode kompilieren
+# WICHTIG: Auf 2 Kerne limitiert (-j2), da sonst RAM-Kollaps auf dem Raspberry Pi droht.
+RUN sh ./autogen.sh && \
+    ./configure --disable-bindings && \
+    make -j2 && \
+    make install
+
+# ==========================================================
+# STAGE 2: Runtime (Leichtgewichtiges Ziel-Image)
 # ==========================================================
 FROM python:3.11-alpine
 
@@ -10,10 +38,9 @@ RUN apk add --no-cache \
     libstdc++ \
     ttf-dejavu
 
-# 2. Die vorkompilierten Binärdateien aus dem präkompilierten Basis-Image herüberkopieren
-COPY --from=ecronika/libredwg-alpine:latest /usr/local/bin/dwg* /usr/local/bin/
-COPY --from=ecronika/libredwg-alpine:latest /usr/local/lib/libredwg* /usr/local/lib/
-COPY --from=ecronika/libredwg-alpine:latest /usr/local/share/libredwg /usr/local/share/libredwg
+# 2. Die vorkompilierten Binärdateien aus der "Builder"-Stage herüberkopieren
+COPY --from=builder /usr/local/bin/dwg* /usr/local/bin/
+COPY --from=builder /usr/local/lib/libredwg* /usr/local/lib/
 
 # 3. System mitteilen, wo die neuen .so Laufzeitbibliotheken liegen
 ENV LD_LIBRARY_PATH=/usr/local/lib
