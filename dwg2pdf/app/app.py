@@ -83,22 +83,29 @@ def _handle_dwg_conversion(temp_dwg_path: str, final_dxf_path: str):
 
     # Workaround für dwg2dxf (LibreDWG) Bug:
     # LibreDWG exportiert Layer häufig fälschlicherweise als "gefroren" oder "aus".
-    # Das führt im Frontend dazu, dass alle Layer deaktiviert sind und der automatische Kamera-Zoom fehlschlägt,
-    # da dieser nur sichtbare Elemente für die Bounding Box berücksichtigt.
+    # Das führt im Frontend dazu, dass alle Layer deaktiviert sind und der automatische Kamera-Zoom fehlschlägt.
     try:
         doc = ezdxf.readfile(final_dxf_path)
         modified = False
         for layer in doc.layers:
-            if not layer.is_on() or layer.is_frozen():
-                layer.on()
-                layer.thaw()
-                modified = True
-        
+            try:
+                # Catch cases where ezdxf returns strings or malformed objects from doc.layers
+                if not hasattr(layer, 'is_on') or not hasattr(layer, 'is_frozen'):
+                    continue
+                
+                if not layer.is_on() or layer.is_frozen():
+                    layer.on()
+                    layer.thaw()
+                    modified = True
+            except Exception as layer_err:
+                logger.debug("Fehler bei individueller Layer-Verarbeitung: %s", layer_err)
+
         if modified:
             doc.saveas(final_dxf_path)
             logger.info("Layer-Sichtbarkeit und Freeze-Status in der konvertierten DXF-Datei korrigiert.")
     except Exception as e:
-        logger.warning("Konnte Layer in %s nicht anpassen: %s", final_dxf_path, e)
+        import traceback
+        logger.warning("Konnte Layer in %s nicht anpassen: %s\n%s", final_dxf_path, e, traceback.format_exc())
 
     return True
 
